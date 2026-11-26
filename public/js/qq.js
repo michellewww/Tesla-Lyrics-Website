@@ -1,7 +1,7 @@
 // Backup lyrics from QQ Music, for songs LRCLIB has no timed lyrics for (mostly Chinese
 // ones). QQ Music doesn't let web pages read its replies directly, so requests go through
 // a small relay (relay/qq-lyrics-worker.js) whose address is set in config.js.
-import { cleanTitle, normalize, sameArtist, sameTitle } from './match.js';
+import { cleanTitle, sameArtist, sameTitle } from './match.js';
 import { withDeadline } from './net.js';
 
 // QQ Music's version of a song may be a second or two longer or shorter than Spotify's.
@@ -10,18 +10,6 @@ const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hang
 // Backing tracks share the song's title but have no lyrics worth showing.
 export const BACKING = /伴奏|纯音乐|純音樂|instrumental|karaoke|off ?vocal/i;
 export const NO_LYRICS = /没有填词的纯音乐|暂无歌词|此歌曲为.*纯音乐|纯音乐，请欣赏/;
-// Credit lines QQ Music puts at the top of its lyrics ("词：…", "Composed by：…").
-export const CREDIT = new RegExp(
-  '^(?:' +
-    [
-      '作?词', '作?曲', '编曲', '制作人?', '监制', '混音', '录音', '和声', '和音', '吉他', '贝斯', '鼓', '键盘', '钢琴', '弦乐',
-      '母带', '出品', '发行', '统筹', '企划', '演唱', '原唱', '翻唱', 'OP', 'SP', 'ISRC',
-      'lyrics by', 'composed by', 'arranged by', 'produced by', 'written by', 'lyricist', 'composer', 'arranger', 'producer',
-      'mixed by', 'mastered by', 'recorded by', 'vocals? by', 'guitar', 'bass', 'drums', 'strings',
-    ].join('|') +
-    ')[^:：]{0,24}[:：]',
-  'i',
-);
 const NOTICE = /未经.{0,12}(?:许可|授权)|不得翻唱|著作权|版权所有|QQ音乐/;
 const STAMPED = /^((?:\[\d+:\d+(?:[.:]\d+)?\])+)(.*)$/;
 
@@ -44,33 +32,18 @@ function decodeEntities(s) {
     .replace(/&(apos|quot|amp|lt|gt|nbsp);/g, (_, name) => ENTITIES[name]);
 }
 
-// Before the first real line, anything shaped like "Label：name" is a credit ("Rap：MC X").
-export const LABEL = /^[^:：]{1,16}[:：]\s*\S/;
-
 /**
- * A music service's LRC with its "Title - Artist" opener, title line, credit lines and
- * notices removed. Returns the timed lines only (no [ti:]/[ar:] tags), or '' when nothing
- * is left. `title`: the song's name, to drop a line that only repeats it at the top.
+ * A music service's LRC as timed lines only: no [ti:]/[ar:] tags, placeholder "//" lines
+ * or copyright notices. Credit lines ("词：…", "Composed by: …") and the title heading are
+ * kept — they are part of what the service shows. Returns '' when no words are left.
  */
-export function cleanServiceLrc(source, { title = '' } = {}) {
+export function cleanServiceLrc(source) {
   const out = [];
-  const name = normalize(title);
-  let first = true;
-  let header = true; // still above the first real lyric line
   for (const raw of decodeEntities(String(source || '')).split(/\r?\n/)) {
     const m = raw.trim().match(STAMPED);
     if (!m) continue;
     const text = m[2].trim();
-    const opener = first && /\s-\s/.test(text); // "Song - Artist"
-    first = false;
-    if (opener || CREDIT.test(text) || NOTICE.test(text) || text === '//') continue;
-    if (header && text) {
-      // A line repeating the title in the first seconds is a heading, not the first lyric.
-      // ("Song", or "Song - Artist" below the credits.)
-      const heading = name && lastStampSec(m[1]) < 5 && (normalize(text) === name || (/\s-\s/.test(text) && normalize(text).startsWith(name)));
-      if (LABEL.test(text) || heading) continue;
-      header = false;
-    }
+    if (NOTICE.test(text) || text === '//') continue;
     out.push(`${m[1]}${text}`);
   }
   return out.some((l) => l.replace(STAMPED, '$2').trim()) ? out.join('\n') : '';
@@ -116,14 +89,14 @@ export function createQQLyrics({ relay, fetchFn = (...a) => globalThis.fetch(...
     const data = await getJson('/lyric', { mid: song.mid });
     const original = fromBase64(data?.lyric);
     if (!original.trim() || NO_LYRICS.test(original)) return null;
-    const timed = cleanServiceLrc(original, { title: song.trackName });
+    const timed = cleanServiceLrc(original);
     if (!timed) {
       // No timestamps at all: plain text.
       const plain = decodeEntities(original).split(/\r?\n/).filter((l) => l.trim() && !/^\[[a-z]+:.*\]$/i.test(l.trim())).join('\n');
       return plain ? { plainLyrics: plain, duration: song.duration, source: 'qq' } : null;
     }
     // A translation shares the original's timestamps; the LRC parser pairs lines by time.
-    const translated = cleanServiceLrc(fromBase64(data?.trans), { title: song.trackName });
+    const translated = cleanServiceLrc(fromBase64(data?.trans));
     return { syncedLyrics: translated ? `${timed}\n${translated}` : timed, duration: song.duration, source: 'qq' };
   }
 

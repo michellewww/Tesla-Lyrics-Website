@@ -3,7 +3,6 @@
 import { parseLrc, parseLyricsfile, parsePlain } from './lrc.js';
 import { cleanTitle, normalize, pickBest } from './match.js';
 import { withDeadline } from './net.js';
-import { CREDIT, LABEL } from './qq.js';
 
 // Bumped whenever matching changes in a way that makes saved results untrustworthy.
 const CACHE_VERSION = 'lyrics:v3:';
@@ -77,25 +76,6 @@ export function sameLyrics(a, b, fold) {
 const timed = (results) => (Array.isArray(results) ? results.filter((r) => r?.duration) : []);
 
 /**
- * Timed lines without the heading some lyric files start with: "Artist - Title" and
- * credits such as "词：…" or "Composed by: …". Only lines above the first real lyric line
- * are looked at (plus credit lines anywhere), so sung lines are never removed.
- */
-export function dropCredits(lines) {
-  let header = true;
-  const kept = lines.filter((l) => {
-    const text = (l.text || '').trim();
-    if (!text) return true;
-    if (CREDIT.test(text)) return false;
-    if (!header) return true;
-    if (LABEL.test(text) || (l.time < 5000 && /\s[-–—]\s/.test(text))) return false;
-    header = false;
-    return true;
-  });
-  return kept.some((l) => l.text) ? kept : lines;
-}
-
-/**
  * Turn an LRCLIB record (or null) into what the UI renders:
  * { status: 'synced'|'plain'|'instrumental'|'none', lines, wordSynced?, lang? }
  */
@@ -105,7 +85,7 @@ export function toResult(record) {
 
   if (record.hasWordSync && record.lyricsfile) {
     try {
-      const lines = dropCredits(parseLyricsfile(record.lyricsfile));
+      const lines = parseLyricsfile(record.lyricsfile);
       if (lines.some((l) => l.text)) {
         return {
           status: 'synced',
@@ -119,7 +99,7 @@ export function toResult(record) {
     }
   }
   if (record.syncedLyrics) {
-    const lines = dropCredits(parseLrc(record.syncedLyrics));
+    const lines = parseLrc(record.syncedLyrics);
     if (lines.some((l) => l.text)) {
       return { status: 'synced', lines, wordSynced: lines.some((l) => (l.words?.length ?? 0) > 1) };
     }

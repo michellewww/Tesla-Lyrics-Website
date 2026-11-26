@@ -60,7 +60,7 @@ LRCLIB ──(get → search → free-text search)──▶ lyrics ────�
 | `public/js/clock.js` | Interpolates playback position between polls |
 | `public/js/sync.js` | Decides which of Spotify's late, noisy position reports to follow (no jumping back) |
 | `public/js/lyrics.js` | LRCLIB lookup with fallbacks, picks Lyricsfile → LRC → plain, caches in localStorage |
-| `public/js/qq.js` | Optional backup: timed lyrics from QQ Music through the relay, with credit lines removed |
+| `public/js/qq.js` | Optional backup: timed lyrics from QQ Music through the relay |
 | `public/js/netease.js` | Timed lyrics from NetEase Cloud Music through a public relay; asked first for Chinese songs |
 | `relay/qq-lyrics-worker.js` | The relay (a Cloudflare Worker) that passes lyric requests on to QQ Music; not part of the site |
 | `public/js/lrc.js` | LRC parser (multi-timestamp, `[offset]`, enhanced word tags, translations), Lyricsfile parser |

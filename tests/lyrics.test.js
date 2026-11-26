@@ -438,12 +438,3 @@ test('artist + album search may add timing when the words are the same song', as
   const r = await p.get(track);
   assert.equal(r.status, 'synced');
 });
-
-test('heading and credit lines at the top of timed lyrics are not shown', () => {
-  const r = toResult({
-    syncedLyrics: ['[00:00.10]周杰伦 - 稻香', '[00:01.09]词：周杰伦', '[00:02.00]曲：周杰伦', '[00:03.00]Rap：someone', '[00:30.00]对这个世界如果你有太多的抱怨', '[00:34.00]他说：不要这么容易就想放弃'].join('\n'),
-  });
-  assert.deepEqual(r.lines.map((l) => l.text), ['对这个世界如果你有太多的抱怨', '他说：不要这么容易就想放弃']);
-  // Lyrics that are nothing but such lines are left alone.
-  assert.equal(toResult({ syncedLyrics: '[00:01.00]词：someone' }).lines.length, 1);
-});

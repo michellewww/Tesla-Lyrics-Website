@@ -91,12 +91,12 @@ export function createNeteaseLyrics({ api, fetchFn = (...a) => globalThis.fetch(
           const data = await getJson({ types: 'lyric', source: 'netease', id: r.id });
           const original = String(data?.lyric || '');
           if (!original.trim() || NO_LYRICS.test(original)) continue;
-          const timed = cleanServiceLrc(original, { title: r.trackName });
+          const timed = cleanServiceLrc(original);
           const end = lastStampSec(timed);
           if (!timed || end > durationSec + END_SLACK_SEC || end < durationSec * MIN_COVERAGE) continue;
           if (sure < 2 && end < durationSec - TIGHT_TAIL_SEC) continue;
           // A translation shares the original's timestamps; the LRC parser pairs lines by time.
-          const translated = cleanServiceLrc(data?.tlyric, { title: r.trackName });
+          const translated = cleanServiceLrc(data?.tlyric);
           // unsure: matched on the title alone, so it could be someone else's recording.
           return { syncedLyrics: translated ? `${timed}\n${translated}` : timed, source: 'netease', ...(sure < 2 ? { unsure: true } : {}) };
         }

@@ -30,16 +30,24 @@ function relay({ list = [song()], lyric = LRC, trans = '' } = {}) {
 const TRACK = { id: 't', name: 'Gunfire Song', artists: ['林俊傑'], album: '100天', durationMs: 244_000 };
 const t2s = (s) => s.replace(/傑/g, '杰');
 
-test('QQ lyrics lose their title line, credits and tags, and keep the words', () => {
-  assert.equal(cleanQQLrc(LRC), "[00:15.45]Still moving\n[00:19.48]No one's beside");
-  assert.equal(cleanQQLrc('[ti:x]\n[00:00.00]Song - Artist\n[00:02.00]作曲：someone'), '');
+const CLEAN = [
+  '[00:00.00]Gunfire Song - 林俊杰',
+  '[00:03.09]Lyrics by：林俊杰',
+  '[00:06.18]词：林俊杰',
+  '[00:15.45]Still moving',
+  "[00:19.48]No one's beside",
+].join('\n');
+
+test('QQ lyrics lose their tags and notices, and keep the credits and the words', () => {
+  assert.equal(cleanQQLrc(LRC), CLEAN);
+  assert.equal(cleanQQLrc('[ti:x]\n[00:01.00]//\n[00:02.00]未经著作权人许可，不得翻唱'), '');
 });
 
 test('a matching QQ song is found and returned as timed lyrics', async () => {
   const fetchFn = relay();
   const qq = createQQLyrics({ relay: 'https://relay.test/', fetchFn });
   const r = await qq.find(TRACK, { fold: t2s });
-  assert.equal(r.syncedLyrics, "[00:15.45]Still moving\n[00:19.48]No one's beside");
+  assert.equal(r.syncedLyrics, CLEAN);
   assert.equal(r.duration, 246);
   assert.equal(new URL(fetchFn.calls[0].url).searchParams.get('q'), 'Gunfire Song 林俊杰'); // asked in Simplified
 });
@@ -180,11 +188,11 @@ function neRelay({ list = [neItem()], lyric = NE_LRC, tlyric = '' } = {}) {
 }
 const ne = (fetchFn) => createNeteaseLyrics({ api: 'https://relay.test/api.php', fetchFn });
 
-test('NetEase lyrics drop the credits and title heading but keep a first line that is the title', async () => {
+test('NetEase lyrics keep their credits and lines, with the translation added', async () => {
   const r = await ne(neRelay({ tlyric: '[by:x]\n[00:15.82]枪火之歌' })).find(TRACK, { fold: t2s });
-  assert.equal(r.syncedLyrics.split('\n')[0], '[00:11.46]');
+  assert.equal(r.syncedLyrics.split('\n')[0], '[00:00.00]作词 : 林俊杰');
   assert.ok(r.syncedLyrics.includes('[02:55.89][00:15.82]Gunfire song'));
-  assert.ok(!/作词|GUNFIRE SONG|Rap|JJ Lin/.test(r.syncedLyrics));
+  assert.ok(/GUNFIRE SONG/.test(r.syncedLyrics) && /Rap：MC VADER/.test(r.syncedLyrics));
   assert.ok(r.syncedLyrics.endsWith('[00:15.82]枪火之歌'));
 });
 

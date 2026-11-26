@@ -187,7 +187,7 @@ async function boot() {
     storage,
     backup: others.length ? (track, opts) => firstTimed(others, track, opts) : null,
     backupFirst: CONFIG.chineseSourcesFirst ? 'cjk' : false,
-    cacheTag: `${CONFIG.lyricsRelay ? 'q' : ''}${CONFIG.neteaseApi ? 'n' : ''}${CONFIG.chineseSourcesFirst ? '1' : ''}v3`,
+    cacheTag: `${CONFIG.lyricsRelay ? 'q' : ''}${CONFIG.neteaseApi ? 'n' : ''}${CONFIG.chineseSourcesFirst ? '1' : ''}v4`,
   });
   showScreen('player');
   renderAllText();
