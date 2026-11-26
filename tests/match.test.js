@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanTitle, normalize, pickBest } from '../public/js/match.js';
+import { cleanTitle, mainTitle, normalize, pickBest, sameArtist, sameTitle } from '../public/js/match.js';
 
 test('cleanTitle strips Spotify-style decorations', () => {
   assert.equal(cleanTitle('Song Name - Remastered 2011'), 'Song Name');
@@ -49,4 +49,24 @@ test('pickBest can compare names in Simplified (fold) and use a tighter duration
   assert.equal(pickBest(results, { durationSec: 327, title: '对等关系', artist: '李荣浩' }), null);
   assert.equal(pickBest(results, { durationSec: 327, title: '对等关系', artist: '李荣浩', fold: toSimplified }).id, 1);
   assert.equal(pickBest(results, { durationSec: 331, title: '对等关系', fold: toSimplified, maxDiff: 3 }), null);
+});
+
+test('mainTitle, sameTitle and sameArtist', () => {
+  assert.equal(mainTitle('对等关系 - Equivalence Relation (feat. aMEI)'), '对等关系');
+  assert.equal(mainTitle('對等關係（伴奏）'), '對等關係');
+  assert.ok(sameTitle('Home (2019 Remaster)', 'home'));
+  assert.ok(!sameTitle('Coming Home', 'Home'));
+  assert.ok(sameArtist('Li, Ronghao & A‐Mei', 'Ronghao Li'));
+  assert.ok(sameArtist('Ronghao Li, A-Mei Chang', 'Ronghao Li'));
+  assert.ok(!sameArtist('Lily', 'Li'));
+  assert.ok(sameArtist('李荣浩, 张惠妹', '李荣浩'));
+});
+
+test('sameArtist compares whole credited names', () => {
+  assert.ok(!sameArtist('Different Band', 'Band'));
+  assert.ok(sameArtist('Band & Friend', 'Band'));
+  assert.ok(sameArtist('The Beatles', 'Beatles'));
+  assert.ok(sameArtist('Queen + David Bowie', 'Queen'));
+  assert.ok(sameArtist('Simon & Garfunkel', 'Simon and Garfunkel'));
+  assert.ok(sameArtist('米津 玄師', '米津玄師'));
 });

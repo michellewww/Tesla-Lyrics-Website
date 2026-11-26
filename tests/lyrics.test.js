@@ -68,7 +68,7 @@ test('keeps a plain-only exact match if no synced version exists anywhere', asyn
   assert.equal(fetchFn.calls.length, 5); // get, 2 searches, title-only, artist+album
 });
 
-test('results are cached in memory and storage; misses are not persisted', async () => {
+test('results are cached in memory and storage; misses for a day', async () => {
   const storage = memoryStorage();
   const fetchFn = fakeFetch(() => jsonResponse(200, { id: 1, syncedLyrics: '[00:01.00]hi' }));
   const p = createLyricsProvider({ fetchFn, storage });
@@ -80,11 +80,19 @@ test('results are cached in memory and storage; misses are not persisted', async
   assert.equal((await p2.get(TRACK)).lines[0].text, 'hi');
   assert.equal(fetchFn.calls.length, 1);
 
+  // Misses are remembered for a day, then searched again.
+  const t = 1_000_000;
   const missStorage = memoryStorage();
   const missFetch = fakeFetch((url) => (url.includes('/api/get') ? jsonResponse(404, {}) : jsonResponse(200, [])));
-  const p3 = createLyricsProvider({ fetchFn: missFetch, storage: missStorage });
+  const p3 = createLyricsProvider({ fetchFn: missFetch, storage: missStorage, now: () => t });
   assert.equal((await p3.get(TRACK)).status, 'none');
-  assert.equal(missStorage.size, 0);
+  const firstCalls = missFetch.calls.length;
+  const p4 = createLyricsProvider({ fetchFn: missFetch, storage: missStorage, now: () => t + 60_000 });
+  assert.equal((await p4.get(TRACK)).status, 'none');
+  assert.equal(missFetch.calls.length, firstCalls); // reload within a day: no new requests
+  const p5 = createLyricsProvider({ fetchFn: missFetch, storage: missStorage, now: () => t + 25 * 60 * 60 * 1000 });
+  await p5.get(TRACK);
+  assert.ok(missFetch.calls.length > firstCalls); // a day later: searched again
 });
 
 test('server errors propagate so the UI can offer a retry', async () => {
@@ -187,4 +195,92 @@ test('a song LRCLIB titles in another language is found by artist + album and ex
   const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
   const r = await p.get(track);
   assert.equal(r.lines[0].text, 'right');
+});
+
+test('title-only search needs the same song name, and for Latin-script songs the same artist', async () => {
+  const track = { id: 'h', name: 'Home', artists: ['Band'], album: 'Album', durationMs: 210_000 };
+  const fetchFn = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get') return jsonResponse(404, {});
+    if (u.searchParams.get('q') === 'Home') {
+      return jsonResponse(200, [
+        { id: 1, trackName: 'Coming Home', artistName: 'Band', duration: 211, syncedLyrics: '[00:01.00]contains' },
+        { id: 2, trackName: 'Home', artistName: 'Someone Else', duration: 210, syncedLyrics: '[00:01.00]other artist' },
+      ]);
+    }
+    return jsonResponse(200, []);
+  });
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
+  assert.equal((await p.get(track)).status, 'none');
+
+  const ok = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get') return jsonResponse(404, {});
+    if (u.searchParams.get('q') === 'Home') {
+      return jsonResponse(200, [{ id: 3, trackName: 'Home (2019 Remaster)', artistName: 'Band & Friend', duration: 211, syncedLyrics: '[00:01.00]right' }]);
+    }
+    return jsonResponse(200, []);
+  });
+  const p2 = createLyricsProvider({ fetchFn: ok, storage: memoryStorage() });
+  assert.equal((await p2.get(track)).lines[0].text, 'right');
+});
+
+test('artist + album search rejects another artist on a same-named album', async () => {
+  const track = { id: 'g', name: 'Track Nine', artists: ['Band'], album: 'Greatest Hits', durationMs: 200_000 };
+  const fetchFn = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get') return jsonResponse(404, {});
+    if (u.searchParams.get('q') === 'Band Greatest Hits') {
+      return jsonResponse(200, [{ id: 1, trackName: 'Other', artistName: 'Different Band', albumName: 'Greatest Hits', duration: 200, syncedLyrics: '[00:01.00]x' }]);
+    }
+    return jsonResponse(200, []);
+  });
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
+  assert.equal((await p.get(track)).status, 'none');
+});
+
+test('fallback searches skip instrumental/backing-track records and keep looking', async () => {
+  const fetchFn = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get') return jsonResponse(404, {});
+    const q = u.searchParams.get('q');
+    if (q === '对等关系') return jsonResponse(200, [{ id: 1, trackName: '对等关系 (伴奏)', artistName: 'x', duration: 327, instrumental: true }]);
+    if (q === '對等關係') return jsonResponse(200, [{ id: 2, trackName: '對等關係', artistName: '李榮浩', duration: 327, syncedLyrics: '[00:01.00]vocal' }]);
+    return jsonResponse(200, []);
+  });
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
+  const r = await p.get(CN_TRACK);
+  assert.equal(r.status, 'synced');
+  assert.equal(r.lines[0].text, 'vocal');
+});
+
+test('a rate limit mid-search keeps lyrics already found and pauses further requests', async () => {
+  let t = 0;
+  const fetchFn = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get') return jsonResponse(200, { id: 1, plainLyrics: 'plain words' });
+    if (u.searchParams.get('q') === 'Song') return jsonResponse(429, {}, { 'Retry-After': '20' });
+    return jsonResponse(200, []);
+  });
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage(), now: () => t });
+  const r = await p.get(TRACK);
+  assert.equal(r.status, 'plain'); // not thrown away by the 429
+  const calls = fetchFn.calls.length;
+  // While paused, the next lookup fails fast without hitting LRCLIB...
+  await assert.rejects(p.get({ ...TRACK, id: 'other' }), /rate limit/);
+  assert.equal(fetchFn.calls.length, calls);
+  // ...and works again once Retry-After has passed.
+  t = 21_000;
+  await p.get({ ...TRACK, id: 'third' });
+  assert.ok(fetchFn.calls.length > calls);
+});
+
+test('English artist names are searched with the English album name', async () => {
+  const track = { id: 'e', name: '对等关系', artists: ['李荣浩'], album: '纵横四海', durationMs: 327_000 };
+  const fetchFn = fakeFetch((url) => (new URL(url).pathname === '/api/get' ? jsonResponse(404, {}) : jsonResponse(200, [])));
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
+  await p.get(track, { alternates: async () => ({ name: 'Equivalence', artists: ['Ronghao Li'], album: 'Zong Heng Si Hai' }) });
+  const queries = fetchFn.calls.map((c) => new URL(c.url).searchParams.get('q')).filter(Boolean);
+  assert.ok(queries.includes('Ronghao Li Zong Heng Si Hai'), queries.join(' | '));
+  assert.ok(!queries.includes('Ronghao Li 纵横四海'));
 });

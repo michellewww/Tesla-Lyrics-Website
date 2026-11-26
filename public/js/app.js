@@ -7,6 +7,7 @@ import { findActiveIndex, withIntro } from './lrc.js';
 import { guessLang, lineSegments, segmentProgress } from './karaoke.js';
 import { analyzeCover, themeFromColor } from './color.js';
 import { initTheme } from './theme.js';
+import { isTeslaBrowser } from './sun.js';
 import { applyI18n, resolveLang, setLang, t } from './i18n.js';
 import { LIMITS, loadSettings, saveSettings } from './settings.js';
 import { createDemo } from './demo.js';
@@ -200,6 +201,8 @@ function applyLayout() {
 }
 
 function applySettings() {
+  // In Tesla's browser the car's own media card has play/skip, so Compact hides ours.
+  if (isTeslaBrowser()) root.dataset.browser = 'tesla';
   applyLayout();
   root.style.setProperty('--font-scale', String(settings.fontScale));
   root.style.setProperty('--line-gap', String(settings.lineGap));

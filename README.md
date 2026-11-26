@@ -29,9 +29,10 @@ no server and no client secret.
   and your location. The location is asked for once, rounded to about 10 km, and kept on the device. Without it, light
   runs 07:00–19:00. A ☀️/🌙 button flips the theme by hand (flipping back to what Auto would pick returns to Auto), and
   Settings has Auto / Light / Dark.
-- **Two layouts.** *Compact* is for the Tesla browser next to the driving view, where Tesla's own media card already
-  shows the cover and play/skip. It drops those, gives the lyrics the full width, and puts the adjustment buttons in a
-  bar at the bottom, nearest your hand. *Full* adds the big cover and playback buttons, for when the browser is full
+- **Two layouts.** *Compact* is for the Tesla browser next to the driving view (and phones). It keeps a small header,
+  gives the lyrics the full width, and puts the adjustment buttons in a bar at the bottom, nearest your hand. In Tesla's
+  browser it also hides our play/skip buttons, since the car's own media card already has them; other browsers keep
+  them in the header. *Full* adds the big cover and playback buttons, for when the browser is full
   screen. Auto picks Full for wide windows and Compact otherwise; Settings → Layout overrides it.
 - **English and Simplified Chinese UI.** It picks the language from the browser, and you can change it in Settings.
   Chinese lyrics get proper CJK fonts and `lang` tags, and bilingual LRC files show the translation under each line.

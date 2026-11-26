@@ -620,18 +620,20 @@ dialog.sheet::backdrop { background: rgba(0, 0, 0, 0.4); }
 /* ---------- compact layout (Tesla side panel, phones) ----------
    html[data-layout="compact"] is set by js/app.js: automatically whenever the window
    isn't wide (Tesla's browser beside the driving view, phones), or from Settings → Layout.
-   Tesla's own media card already shows the cover and play/skip, so this layout drops
-   them and gives the lyrics the whole width. The adjustment buttons sit in a bar at the
+   It keeps a small cover and gives the lyrics the whole width. In Tesla's browser
+   (html[data-browser="tesla"]) the play/skip buttons are hidden too, because the car's
+   own media card already has them; everywhere else they sit in the header. The adjustment buttons sit in a bar at the
    bottom, nearest the driver's hand, like Tesla's own dock; ⚙️ is pushed to the far end
    so it isn't hit by accident. */
 
 html[data-layout="compact"] { --lyric-size: clamp(24px, calc(2.3vw + 1.7vh), 60px); }
 html[data-layout="compact"] .player {
   grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   grid-template-areas:
-    "cover meta conn"
+    "cover meta controls"
     "progress progress progress"
+    "conn conn conn"
     "lyrics lyrics lyrics"
     "tools tools tools";
 }
@@ -648,11 +650,18 @@ html[data-layout="compact"] .meta { grid-area: meta; align-self: center; min-wid
 html[data-layout="compact"] .title { font-size: clamp(17px, calc(0.8vw + 1vh), 24px); -webkit-line-clamp: 1; }
 html[data-layout="compact"] .artist { font-size: clamp(14px, calc(0.5vw + 0.8vh), 18px); margin-top: 2px; }
 html[data-layout="compact"] .chips { display: none; }
-html[data-layout="compact"] .conn { grid-area: conn; align-self: center; margin: 14px clamp(16px, 3vw, 40px) 0 0; }
+html[data-layout="compact"] .conn { grid-area: conn; margin: 6px clamp(16px, 3vw, 40px) 0; }
 html[data-layout="compact"] .progress { grid-area: progress; margin: 8px clamp(16px, 3vw, 40px) 0; }
 html[data-layout="compact"] .seekbar { height: 20px; }
 html[data-layout="compact"] .times { display: none; }
-html[data-layout="compact"] .controls { display: none; }
+html[data-layout="compact"] .controls {
+  grid-area: controls;
+  gap: 4px;
+  margin: max(14px, env(safe-area-inset-top)) clamp(12px, 3vw, 40px) 0 0;
+}
+html[data-layout="compact"] .icon-btn { width: 48px; height: 48px; font-size: 28px; }
+html[data-layout="compact"] .icon-btn.play { width: 56px; height: 56px; font-size: 28px; }
+html[data-layout="compact"][data-browser="tesla"] .controls { display: none; }
 html[data-layout="compact"] .lyrics-wrap { grid-area: lyrics; }
 html[data-layout="compact"] .lyrics { padding: 30vh clamp(20px, 4vw, 64px) 44vh; }
 html[data-layout="compact"] .lyrics.is-plain { padding-top: 6vh; }
@@ -667,6 +676,8 @@ html[data-layout="compact"] .toast { bottom: 84px; }
 /* Phones and other narrow windows: tighter header and buttons. */
 @media (max-width: 600px) {
   html[data-layout="compact"] .tools { gap: 6px; }
+  html[data-layout="compact"] .icon-btn { width: 44px; height: 44px; font-size: 26px; }
+  html[data-layout="compact"] .icon-btn.play { width: 52px; height: 52px; font-size: 26px; }
   html[data-layout="compact"] .tools .pill { height: 40px; min-width: 38px; padding: 0 10px; }
   html[data-layout="compact"] .tools .pill.icon { width: 40px; padding: 0; }
   html[data-layout="compact"] .tools .sync-label { min-width: 0; font-size: 13px; }

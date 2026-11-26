@@ -23,12 +23,17 @@ export function isDaytime(date, coords) {
   return h >= FALLBACK_DAY[0] && h < FALLBACK_DAY[1];
 }
 
+/** Tesla's in-car browser identifies itself with "Tesla/<version>" in its user agent. */
+export function isTeslaBrowser(userAgent = globalThis.navigator?.userAgent || '') {
+  return /\bTesla\//.test(userAgent);
+}
+
 /**
  * Whether the browser really reports the device's light/dark mode. Tesla's browser
  * answers the media query but always says "light", so it's treated as unknown.
  */
 export function systemThemeKnown({ matchMedia = globalThis.matchMedia, userAgent = globalThis.navigator?.userAgent || '' } = {}) {
-  if (/\bTesla\//.test(userAgent)) return false;
+  if (isTeslaBrowser(userAgent)) return false;
   if (!matchMedia) return false;
   return Boolean(matchMedia('(prefers-color-scheme: dark)').matches || matchMedia('(prefers-color-scheme: light)').matches);
 }
