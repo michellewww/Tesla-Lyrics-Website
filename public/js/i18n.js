@@ -1,0 +1,255 @@
+// UI translations: English and Simplified Chinese.
+// "auto" picks Chinese when the browser's preferred language is any Chinese variant.
+
+const LRCLIB_LINK = '<a href="https://lrclib.net" target="_blank" rel="noopener">LRCLIB</a>';
+const DASHBOARD_LINK =
+  '<a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a>';
+
+export const STRINGS = {
+  en: {
+    'app.title': 'Tesla Lyrics',
+    'setup.title': 'Set up Spotify',
+    'setup.intro': "This site needs a free Spotify app so it can see what you're playing. It takes a minute, and you only do it once.",
+    'setup.step1': `Open ${DASHBOARD_LINK} and create an app (any name). Tick <b>Web API</b>.`,
+    'setup.step2': 'Add this exact <b>Redirect URI</b>:',
+    'setup.copy': 'Copy',
+    'setup.step3': "Copy the app's <b>Client ID</b> and paste it here:",
+    'setup.placeholder': '32-character Client ID',
+    'setup.save': 'Save',
+    'setup.invalid': "That doesn't look like a Client ID — it should be 32 letters and numbers.",
+    'setup.note':
+      'No client secret is needed. Spotify apps in Development Mode work for the app owner (needs Spotify Premium) plus up to 5 users you add under <b>User Management</b>.',
+    'setup.demo': 'Try the demo instead →',
+    'login.title': 'Lyrics for the road',
+    'login.sub': "Live, synced lyrics for whatever's playing on your Spotify — in the car, on your phone, anywhere.",
+    'login.button': 'Log in with Spotify',
+    'login.demo': 'Try the demo',
+    'login.changeClient': 'Use a different Client ID',
+    'login.disclaimer': `Not affiliated with Tesla or Spotify. Lyrics from ${LRCLIB_LINK}.`,
+    'err.loginCancelled': 'Spotify login was cancelled.',
+    'err.loginState': "Login couldn't be verified. Please try again.",
+    'err.loginFailed': 'Spotify login failed: {msg}',
+    'err.sessionEnded': 'Your Spotify session ended. Please log in again.',
+    'err.generic': 'Something went wrong: {msg}',
+    'player.notPlaying': 'Not playing',
+    'player.ad': 'Advertisement',
+    'aria.seek': 'Seek',
+    'aria.prev': 'Previous track',
+    'aria.play': 'Play',
+    'aria.pause': 'Pause',
+    'aria.next': 'Next track',
+    'aria.smaller': 'Smaller text',
+    'aria.larger': 'Larger text',
+    'aria.fullscreen': 'Full screen',
+    'aria.settings': 'Settings',
+    'sync.laterTitle': 'Lyrics too early? Show them later',
+    'sync.earlierTitle': 'Lyrics too late? Show them earlier',
+    'sync.resetTitle': 'Tap to reset timing',
+    'sync.inSync': 'In sync',
+    'sync.earlier': '{s}s earlier',
+    'sync.later': '{s}s later',
+    'conn.reconnecting': 'Reconnecting to Spotify…',
+    'chip.word': 'Word-synced',
+    'chip.line': 'Line-synced',
+    'chip.plain': 'Not time-synced',
+    'lyrics.recenter': 'Back to current line',
+    'status.nothing': 'Nothing playing',
+    'status.nothingText': 'Start playing music on Spotify — in your car, on your phone or anywhere — and the lyrics will show up here.',
+    'status.adText': 'Lyrics will be back after the break.',
+    'status.podcast': 'Podcast playing',
+    'status.podcastText': "Lyrics aren't available for podcasts.",
+    'status.loading': 'Looking for lyrics…',
+    'status.none': 'No lyrics found',
+    'status.noneText': "LRCLIB doesn't have lyrics for this song yet.",
+    'status.instrumental': 'Instrumental',
+    'status.instrumentalText': 'Enjoy the music.',
+    'status.error': "Couldn't load lyrics",
+    'status.errorText': 'Check the connection and try again.',
+    'status.retry': 'Try again',
+    'settings.title': 'Settings',
+    'settings.lyrics': 'Lyrics',
+    'settings.textSize': 'Text size',
+    'settings.timing': 'Timing offset',
+    'settings.timingHint': 'Lyrics late? Tap + to show them earlier. Saved on this device.',
+    'settings.reset': 'Reset',
+    'settings.align': 'Alignment',
+    'settings.alignLeft': 'Left',
+    'settings.alignCenter': 'Center',
+    'settings.karaoke': 'Karaoke highlight',
+    'settings.karaokeHint': 'Fills the current line character by character — exact when the song has word timing, estimated otherwise.',
+    'settings.translation': 'Show translations',
+    'settings.highlight': 'Highlight color',
+    'hl.default': 'Default',
+    'hl.cover': 'Album',
+    'hl.green': 'Green',
+    'hl.gold': 'Gold',
+    'hl.pink': 'Pink',
+    'settings.display': 'Display',
+    'settings.appearance': 'Appearance',
+    'theme.auto': 'Auto',
+    'theme.light': 'Light',
+    'theme.dark': 'Dark',
+    'settings.appearanceHint': "Auto follows your device's light/dark setting.",
+    'settings.background': 'Background',
+    'bg.blur': 'Blurred cover',
+    'bg.color': 'Album color',
+    'settings.language': 'Language',
+    'lang.auto': 'Auto',
+    'settings.account': 'Account',
+    'settings.logout': 'Log out of Spotify',
+    'settings.exitDemo': 'Exit demo',
+    'settings.changeClient': 'Change Client ID',
+    'settings.done': 'Done',
+    'settings.tip': `Tip: tap any lyric line to jump there. Lyrics from ${LRCLIB_LINK}. Not affiliated with Tesla or Spotify.`,
+    'toast.copied': 'Redirect URI copied',
+    'toast.textSize': 'Text size {n}%',
+    'toast.premium': 'Playback controls need Spotify Premium.',
+    'toast.noDevice': 'No active Spotify device. Start playing on a device first.',
+    'toast.busy': 'Spotify is busy — try again in a moment.',
+    'toast.unreachable': "Couldn't reach Spotify.",
+    'toast.noFullscreen': "Full screen isn't available here.",
+    'demo.badge': 'Demo',
+  },
+
+  'zh-CN': {
+    'app.title': 'Tesla 歌词',
+    'setup.title': '设置 Spotify',
+    'setup.intro': '本网站需要一个免费的 Spotify 应用来读取你正在播放的歌曲。只需一分钟，而且只用设置一次。',
+    'setup.step1': `打开 ${DASHBOARD_LINK} 并创建一个应用（名称随意），勾选 <b>Web API</b>。`,
+    'setup.step2': '添加下面这个<b>重定向 URI</b>（必须完全一致）：',
+    'setup.copy': '复制',
+    'setup.step3': '复制应用的 <b>Client ID</b>，粘贴到这里：',
+    'setup.placeholder': '32 位 Client ID',
+    'setup.save': '保存',
+    'setup.invalid': '这看起来不像 Client ID——它应该是 32 位字母和数字。',
+    'setup.note':
+      '无需 Client Secret。开发模式下的 Spotify 应用可供应用所有者（需要 Spotify Premium）以及最多 5 位在 <b>User Management</b> 中添加的用户使用。',
+    'setup.demo': '先试试演示 →',
+    'login.title': '边开边唱',
+    'login.sub': '实时同步显示 Spotify 正在播放的歌词——车里、手机上，随时随地。',
+    'login.button': '使用 Spotify 登录',
+    'login.demo': '试用演示',
+    'login.changeClient': '更换 Client ID',
+    'login.disclaimer': `与 Tesla、Spotify 无关联。歌词来自 ${LRCLIB_LINK}。`,
+    'err.loginCancelled': '已取消 Spotify 登录。',
+    'err.loginState': '无法验证登录，请重试。',
+    'err.loginFailed': 'Spotify 登录失败：{msg}',
+    'err.sessionEnded': 'Spotify 登录已失效，请重新登录。',
+    'err.generic': '出错了：{msg}',
+    'player.notPlaying': '未在播放',
+    'player.ad': '广告',
+    'aria.seek': '播放进度',
+    'aria.prev': '上一首',
+    'aria.play': '播放',
+    'aria.pause': '暂停',
+    'aria.next': '下一首',
+    'aria.smaller': '缩小字体',
+    'aria.larger': '放大字体',
+    'aria.fullscreen': '全屏',
+    'aria.settings': '设置',
+    'sync.laterTitle': '歌词太快？延后显示',
+    'sync.earlierTitle': '歌词太慢？提前显示',
+    'sync.resetTitle': '点击重置时间偏移',
+    'sync.inSync': '无偏移',
+    'sync.earlier': '提前 {s} 秒',
+    'sync.later': '延后 {s} 秒',
+    'conn.reconnecting': '正在重新连接 Spotify…',
+    'chip.word': '逐字同步',
+    'chip.line': '逐行同步',
+    'chip.plain': '无时间轴',
+    'lyrics.recenter': '回到当前歌词',
+    'status.nothing': '暂无播放',
+    'status.nothingText': '在 Spotify 上播放音乐（车机、手机或任何设备），歌词就会显示在这里。',
+    'status.adText': '广告结束后歌词就会回来。',
+    'status.podcast': '正在播放播客',
+    'status.podcastText': '播客没有歌词。',
+    'status.loading': '正在查找歌词…',
+    'status.none': '未找到歌词',
+    'status.noneText': 'LRCLIB 暂时没有这首歌的歌词。',
+    'status.instrumental': '纯音乐',
+    'status.instrumentalText': '请欣赏。',
+    'status.error': '歌词加载失败',
+    'status.errorText': '请检查网络连接后重试。',
+    'status.retry': '重试',
+    'settings.title': '设置',
+    'settings.lyrics': '歌词',
+    'settings.textSize': '字体大小',
+    'settings.timing': '时间偏移',
+    'settings.timingHint': '歌词慢了？点 + 让歌词提前显示。设置保存在本设备上。',
+    'settings.reset': '重置',
+    'settings.align': '对齐方式',
+    'settings.alignLeft': '左对齐',
+    'settings.alignCenter': '居中',
+    'settings.karaoke': '卡拉 OK 逐字高亮',
+    'settings.karaokeHint': '当前歌词逐字填色——有逐字时间轴时精确同步，否则自动估算。',
+    'settings.translation': '显示翻译',
+    'settings.highlight': '高亮颜色',
+    'hl.default': '默认',
+    'hl.cover': '专辑色',
+    'hl.green': '绿色',
+    'hl.gold': '金色',
+    'hl.pink': '粉色',
+    'settings.display': '显示',
+    'settings.appearance': '外观',
+    'theme.auto': '自动',
+    'theme.light': '浅色',
+    'theme.dark': '深色',
+    'settings.appearanceHint': '“自动”会跟随设备的浅色/深色模式。',
+    'settings.background': '背景',
+    'bg.blur': '模糊封面',
+    'bg.color': '专辑主色',
+    'settings.language': '语言',
+    'lang.auto': '自动',
+    'settings.account': '账户',
+    'settings.logout': '退出 Spotify 登录',
+    'settings.exitDemo': '退出演示',
+    'settings.changeClient': '更换 Client ID',
+    'settings.done': '完成',
+    'settings.tip': `提示：点击任意一行歌词即可跳转到那里。歌词来自 ${LRCLIB_LINK}。与 Tesla、Spotify 无关联。`,
+    'toast.copied': '已复制重定向 URI',
+    'toast.textSize': '字体大小 {n}%',
+    'toast.premium': '播放控制需要 Spotify Premium。',
+    'toast.noDevice': '没有活动的 Spotify 设备，请先在某个设备上开始播放。',
+    'toast.busy': 'Spotify 繁忙，请稍后再试。',
+    'toast.unreachable': '无法连接 Spotify。',
+    'toast.noFullscreen': '此处无法全屏。',
+    'demo.badge': '演示',
+  },
+};
+
+export const LANGS = ['en', 'zh-CN'];
+
+/** Resolve the UI language from the user's preference ('auto' | 'en' | 'zh-CN'). */
+export function resolveLang(pref, browserLangs = []) {
+  if (LANGS.includes(pref)) return pref;
+  const first = String(browserLangs[0] || '').toLowerCase();
+  return first.startsWith('zh') ? 'zh-CN' : 'en';
+}
+
+let current = 'en';
+
+export function setLang(lang) {
+  current = LANGS.includes(lang) ? lang : 'en';
+  return current;
+}
+
+export function getLang() {
+  return current;
+}
+
+/** Translate a key, filling {placeholders}. Falls back to English, then the key itself. */
+export function t(key, vars = {}) {
+  const s = STRINGS[current]?.[key] ?? STRINGS.en[key] ?? key;
+  return s.replace(/\{(\w+)\}/g, (_, k) => (vars[k] !== undefined ? String(vars[k]) : `{${k}}`));
+}
+
+/** Apply translations to elements marked with data-i18n* attributes. */
+export function applyI18n(root = document) {
+  document.documentElement.lang = current;
+  for (const el of root.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
+  // Only our own static strings go through innerHTML.
+  for (const el of root.querySelectorAll('[data-i18n-html]')) el.innerHTML = t(el.dataset.i18nHtml);
+  for (const el of root.querySelectorAll('[data-i18n-title]')) el.title = t(el.dataset.i18nTitle);
+  for (const el of root.querySelectorAll('[data-i18n-aria]')) el.setAttribute('aria-label', t(el.dataset.i18nAria));
+  for (const el of root.querySelectorAll('[data-i18n-placeholder]')) el.placeholder = t(el.dataset.i18nPlaceholder);
+}

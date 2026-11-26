@@ -1,0 +1,14 @@
+{
+  "name": "tesla-lyrics-website",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Synced lyrics for whatever is playing on Spotify, sized for a Tesla touchscreen. Static site for GitHub Pages.",
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "test": "node --test tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
