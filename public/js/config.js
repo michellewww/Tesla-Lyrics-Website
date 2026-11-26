@@ -13,12 +13,15 @@ export const CONFIG = {
     'user-modify-playback-state', // play/pause/skip/seek (Spotify Premium only)
   ],
 
-  // How often to ask Spotify what is playing. Between polls the playback position
-  // is interpolated locally, so lyrics stay smooth.
+  // How often to ask Spotify what is playing. Between polls the playback position is
+  // interpolated locally, and sync.js decides which reports to follow, so more frequent
+  // polling means quicker catch-up rather than more jumps. Each request counts toward the
+  // Spotify app's rate limit (shared by everyone using this Client ID); on a 429 the app
+  // backs off for as long as Spotify asks.
   pollMs: {
-    playing: 2000,
-    paused: 5000,
-    idle: 5000,
+    playing: 1000,
+    paused: 2000,
+    idle: 3000,
     hidden: 15000,
   },
 

@@ -70,19 +70,24 @@ export function normalizePlayback(data, sampledAt) {
 }
 
 export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a), now = () => performance.now() }) {
-  async function api(method, path, { query, headers } = {}, retried = false) {
+  let fastestRoundTrip = Infinity; // ms; the best estimate of plain network latency
+
+  /** `timing`, if given, receives when the request went out and when the response arrived. */
+  async function api(method, path, { query, headers, timing } = {}, retried = false) {
     const token = await auth.getAccessToken();
     if (!token) throw new AuthRequiredError();
     const qs = query ? `?${new URLSearchParams(query)}` : '';
+    if (timing) timing.sent = now();
     const res = await fetchFn(`${API}${path}${qs}`, {
       method,
       headers: { ...headers, Authorization: `Bearer ${token}` },
     });
+    if (timing) timing.received = now();
 
     if (res.status === 401 && !retried) {
       const fresh = await auth.refresh();
       if (!fresh) throw new AuthRequiredError();
-      return api(method, path, { query, headers }, true);
+      return api(method, path, { query, headers, timing }, true);
     }
     if (res.status === 401) throw new AuthRequiredError();
     if (res.status === 429) {
@@ -104,11 +109,16 @@ export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a)
 
   return {
     async nowPlaying() {
-      const t0 = now();
-      const data = await api('GET', '/me/player/currently-playing', { query: { additional_types: 'episode' } });
-      const t1 = now();
-      // progress_ms was measured roughly halfway through the round trip.
-      return normalizePlayback(data, (t0 + t1) / 2);
+      const timing = {};
+      const data = await api('GET', '/me/player/currently-playing', { query: { additional_types: 'episode' }, timing });
+      // Spotify measures progress_ms just before it answers, so about half a *plain* round
+      // trip before the response arrives. Only the request itself is timed (not a token
+      // refresh), and the fastest round trip seen stands in for the network latency: the
+      // first request after a page load also pays for connection setup, which would make
+      // the position look older than it is and the lyrics lag.
+      const roundTrip = Math.max(0, timing.received - timing.sent);
+      fastestRoundTrip = Math.min(fastestRoundTrip, roundTrip);
+      return normalizePlayback(data, timing.received - fastestRoundTrip / 2);
     },
     /**
      * The playing track's names in English. Spotify localises names (notably Chinese,

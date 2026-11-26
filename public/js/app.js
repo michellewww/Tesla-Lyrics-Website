@@ -2,7 +2,7 @@ import { CONFIG } from './config.js';
 import { AuthError, createAuth, redirectUriFor } from './auth.js';
 import { ApiError, AuthRequiredError, RateLimitError, createSpotify } from './spotify.js';
 import { createLyricsProvider } from './lyrics.js';
-import { PlaybackClock } from './clock.js';
+import { PlaybackSync } from './sync.js';
 import { findActiveIndex, withIntro } from './lrc.js';
 import { guessLang, lineSegments, segmentProgress } from './karaoke.js';
 import { analyzeCover, themeFromColor } from './color.js';
@@ -58,7 +58,8 @@ const KEY_CLIENT_ID = 'spotify:client_id';
 const TOOLBAR_OFFSET_STEP = 250;
 
 const settings = loadSettings(storage);
-const clock = new PlaybackClock();
+// Decides which of Spotify's (late, noisy) position reports to follow; see sync.js.
+const clock = new PlaybackSync();
 const state = {
   player: null,
   lyricsProvider: null,
@@ -118,7 +119,9 @@ async function boot() {
   bindUi();
 
   if (DEMO) {
-    const demo = createDemo();
+    // ?demo&lag=5 reports every change 5 s late (and behind), like a car's Spotify.
+    const lagSec = Number(new URLSearchParams(location.search).get('lag'));
+    const demo = createDemo({ reportLagMs: Number.isFinite(lagSec) && lagSec > 0 ? lagSec * 1000 : 0 });
     state.player = demo.player;
     state.lyricsProvider = demo.lyrics;
     document.body.classList.add('is-demo');
@@ -347,7 +350,7 @@ function applyPlayback(pb) {
   if ((track?.id ?? null) !== (state.track?.id ?? null)) setTrack(track);
 
   if (track) {
-    clock.sync({
+    clock.report({
       trackId: track.id,
       progressMs: pb.progressMs,
       sampledAt: pb.sampledAt,
@@ -355,7 +358,7 @@ function applyPlayback(pb) {
       durationMs: track.durationMs,
     });
   } else {
-    clock.setPlaying(false);
+    clock.stop();
   }
   renderPlayState();
   renderStatus();
@@ -806,7 +809,16 @@ function seekTo(ms) {
   const target = Math.max(0, Math.min(ms, state.track.durationMs - 500));
   state.followPausedUntil = 0;
   els.recenter.hidden = true;
-  control(() => state.player.seek(target), () => clock.seek(target), 900);
+  // The tapped line is shown at once and held until Spotify confirms it (see sync.js).
+  control(
+    () =>
+      state.player.seek(target).catch((e) => {
+        clock.cancelSeek();
+        throw e;
+      }),
+    () => clock.seek(target),
+    900,
+  );
 }
 
 function skip(dir) {

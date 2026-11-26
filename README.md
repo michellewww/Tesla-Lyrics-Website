@@ -19,7 +19,8 @@ no server and no client secret.
 
   The looser searches are accepted only when the song's length matches (±3 s for a title match, ±2 s plus a matching
   album otherwise). Synced lyrics are preferred, and plain lyrics are shown if that's all LRCLIB has.
-- **Line sync that stays smooth.** It polls Spotify every 2 s and interpolates the position locally every frame.
+- **Line sync that stays smooth.** It polls Spotify every second while music plays and interpolates the position
+  locally every frame.
 - **Tap any line to jump there.** Also play/pause, previous/next, and a seek bar.
 - **Adjustments:** text size, line spacing, timing offset (±0.1 s / ±0.5 s steps), left or centered alignment, karaoke on/off,
   show translations, highlight colour (default, album colour, green, gold, pink), background (blurred cover or
@@ -57,7 +58,8 @@ LRCLIB ──(get → search → free-text search)──▶ lyrics ────�
 | --- | --- |
 | `public/js/auth.js` | Authorization Code + PKCE login, token refresh (single-flight), logout |
 | `public/js/spotify.js` | `currently-playing`, play/pause/next/previous/seek; 401 → refresh + retry, 429 → back off |
-| `public/js/clock.js` | Interpolates playback position between polls; ignores sub-250 ms network jitter |
+| `public/js/clock.js` | Interpolates playback position between polls |
+| `public/js/sync.js` | Decides which of Spotify's late, noisy position reports to follow (no jumping back) |
 | `public/js/lyrics.js` | LRCLIB lookup with fallbacks, picks Lyricsfile → LRC → plain, caches in localStorage |
 | `public/js/lrc.js` | LRC parser (multi-timestamp, `[offset]`, enhanced word tags, translations), Lyricsfile parser |
 | `public/js/yaml.js` | Tiny YAML-subset parser for LRCLIB's Lyricsfile |
@@ -149,6 +151,16 @@ The app is built for the car's Chromium-based browser:
 - **Full screen:** Tesla's browser generally doesn't support the Fullscreen API, so that setting only appears where
   it works. Owners use a community workaround: open `youtube.com/redirect?q=<site URL>` and confirm. Tesla doesn't
   support it and has broken it in some updates.
+- **Reporting delay:** the car's Spotify tells Spotify's servers about changes a few seconds late, and Spotify
+  then counts the position from when it heard. Commands *to* the car (skip or seek from the app) arrive quickly.
+  `public/js/sync.js` decides which of Spotify's reports to follow, so the lyrics don't jump back:
+  - small differences are judged on the median of recent reports;
+  - moving back needs three agreeing reports;
+  - a song that follows the previous one is counted from the moment that one ended;
+  - seeks and rewinds in the car are followed at once;
+  - a tapped line is held until Spotify confirms it.
+
+  A new song still appears only once Spotify reports it. To try it without a car, open `?demo&lag=5`.
 - **Dark mode:** Tesla's browser answers the dark-mode query but doesn't follow the car's day/night display, so it
   is detected by its user agent (`Tesla/…`) and Auto switches at sunrise and sunset instead.
 - **Restrictions you can't control:** Parental Controls can disable the browser, and whether it can be used while
