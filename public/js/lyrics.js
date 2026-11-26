@@ -8,6 +8,10 @@ const CACHE_INDEX = 'lyrics:v2:index';
 const CACHE_MAX = 80;
 const MISS_TTL_MS = 24 * 60 * 60 * 1000; // a miss is re-checked after a day (LRCLIB grows)
 const INCOMPLETE_TTL_MS = 10 * 60 * 1000; // a search cut short by an error is retried after 10 min
+// Synced lyrics are only trusted as-is when the record is this close in length to Spotify's
+// track (LRCLIB's own exact match uses ±2 s). A version a few seconds longer or shorter
+// usually has a different intro, so every line is off by about that much for the whole song.
+const SAME_LENGTH_SEC = 2;
 const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const HAN = /\p{Script=Han}/u;
 const KANA_HANGUL = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
@@ -31,6 +35,12 @@ async function loadTraditional() {
 }
 
 const unique = (list) => [...new Set(list.filter(Boolean))];
+
+/** Of two records, the one whose length is closer to `durationSec`. */
+function closer(a, b, durationSec) {
+  if (!a || !b) return a || b || null;
+  return Math.abs(b.duration - durationSec) < Math.abs(a.duration - durationSec) ? b : a;
+}
 const timed = (results) => (Array.isArray(results) ? results.filter((r) => r?.duration) : []);
 
 /**
@@ -95,8 +105,14 @@ export function createLyricsProvider({
 
   const good = (r) => Boolean(r && (r.syncedLyrics || r.instrumental));
 
-  /** Steps 1–3 for one set of names. Returns a synced/instrumental hit, or the best other match. */
+  /**
+   * Steps 1–3 for one set of names. Returns { found } for a synced/instrumental record of the
+   * same length, otherwise { far, fallback }: a synced record of a different-length version
+   * (timing likely off) and/or a plain-lyrics match.
+   */
   async function searchByNames({ name, artists, album }, durationSec, fold, req) {
+    const sameLength = (r) => !durationSec || !r?.duration || Math.abs(r.duration - durationSec) <= SAME_LENGTH_SEC;
+    let far = null;
     const artist = artists?.[0] || '';
     const title = cleanTitle(name) || name;
 
@@ -113,14 +129,17 @@ export function createLyricsProvider({
     // 2) Structured search with the cleaned-up title.
     const structured = await req('/api/search', { track_name: title, artist_name: artist });
     let best = pickBest(structured, { durationSec });
-    if (good(best)) return { found: best };
-    fallback ||= best;
+    if (good(best) && sameLength(best)) return { found: best };
+    if (good(best)) far = best;
+    else fallback ||= best;
 
     // 3) Free-text search, verified against artist and title.
     const free = await req('/api/search', { q: `${title} ${artist}`.trim() });
     best = pickBest(free, { durationSec, artist, title, fold });
-    if (good(best)) return { found: best };
-    return { fallback: fallback || best || null };
+    if (good(best) && sameLength(best)) return { found: best };
+    if (good(best)) far = closer(far, best, durationSec);
+    else fallback ||= best;
+    return { far, fallback: fallback || null };
   }
 
   async function lookup(track, alternates) {
@@ -146,8 +165,11 @@ export function createLyricsProvider({
     };
     // Returns { record, incomplete }: incomplete when an error cut the search short, so
     // a better match may still exist and the result shouldn't be kept for long.
-    const finish = (fallback) => {
-      if (fallback) return { record: fallback, incomplete: Boolean(failure) };
+    // A different-length version's synced lyrics (`far`) beat plain lyrics, but only once
+    // every search for a same-length one has come up empty.
+    const finish = () => {
+      const record = far || fallback;
+      if (record) return { record, incomplete: Boolean(failure) };
       if (failure) throw failure;
       return { record: null, incomplete: false };
     };
@@ -156,6 +178,7 @@ export function createLyricsProvider({
     const first = await searchByNames(track, durationSec, fold, req);
     if (first.found) return hit(first.found);
     let fallback = first.fallback;
+    let far = first.far;
 
     // 4) Spotify shows names in the browser's language (李荣浩 in a Chinese browser,
     //    "Ronghao Li" in an English one), and LRCLIB often has the English ones.
@@ -166,11 +189,12 @@ export function createLyricsProvider({
         const second = await searchByNames(en, durationSec, fold, req);
         if (second.found) return hit(second.found);
         fallback ||= second.fallback;
+        far = closer(far, second.far, durationSec);
       }
     }
 
     // The remaining searches are looser, so they need the song's length to confirm a match.
-    if (!durationSec || failure) return finish(fallback);
+    if (!durationSec || failure) return finish();
 
     // Spellings to try: as given, and for Chinese also in Simplified and Traditional
     // (Taiwan and Hong Kong forms), since LRCLIB's search treats them as different text.
@@ -182,7 +206,7 @@ export function createLyricsProvider({
     // much more likely to be a backing track of the song than the song itself.
     const candidates = (results) => timed(results).filter((r) => !r.instrumental);
 
-    // 5) Title only — accepted when the length is within 3 s and the song name is the
+    // 5) Title only — accepted when the length is within 2 s and the song name is the
     //    same (not merely contained: "Home" ≠ "Coming Home"). Latin-script artists are
     //    spelled consistently, so those must match too; for CJK songs the artist is often
     //    spelled differently on LRCLIB, which is why this step exists.
@@ -194,7 +218,7 @@ export function createLyricsProvider({
         title: q,
         artist: localized ? undefined : artistNames,
         fold,
-        maxDiff: 3,
+        maxDiff: SAME_LENGTH_SEC,
         exact: true,
       });
       if (good(best)) return hit(best);
@@ -217,18 +241,19 @@ export function createLyricsProvider({
         artist: artistNames,
         album: albums,
         fold,
-        maxDiff: 2,
+        maxDiff: SAME_LENGTH_SEC,
         exact: true,
       });
       if (good(best)) return hit(best);
       fallback ||= best;
     }
-    return finish(fallback);
+    return finish();
   }
 
   /** Misses and cut-short results expire; complete hits don't. */
   function expired(entry) {
-    const ttl = entry.incomplete ? INCOMPLETE_TTL_MS : entry.status === 'none' ? MISS_TTL_MS : Infinity;
+    // A different-length version is re-checked daily too, in case the right one is added.
+    const ttl = entry.incomplete ? INCOMPLETE_TTL_MS : entry.status === 'none' || entry.approximate ? MISS_TTL_MS : Infinity;
     return Number.isFinite(ttl) && !(now() - (entry.checkedAt || 0) < ttl);
   }
 
@@ -283,11 +308,18 @@ export function createLyricsProvider({
       }
       const { record, incomplete } = await lookup(track, alternates);
       const result = toResult(record);
+      const durationSec = track.durationMs ? Math.round(track.durationMs / 1000) : 0;
+      // Synced lyrics from a version of a different length: timing is probably off.
+      if (result.status === 'synced' && durationSec && record?.duration && Math.abs(record.duration - durationSec) > SAME_LENGTH_SEC) {
+        result.approximate = true;
+      }
       // Misses are re-checked after a day (LRCLIB may add the song later), and results of a
       // search an error cut short after 10 minutes; full hits are kept. The Retry button
       // calls forget() to search again right away.
       const entry =
-        incomplete || result.status === 'none' ? { ...result, checkedAt: now(), ...(incomplete ? { incomplete: true } : {}) } : result;
+        incomplete || result.status === 'none' || result.approximate
+          ? { ...result, checkedAt: now(), ...(incomplete ? { incomplete: true } : {}) }
+          : result;
       memory.set(track.id, entry);
       writeCache(track.id, entry);
       return entry;

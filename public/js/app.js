@@ -514,6 +514,9 @@ async function loadLyrics(track) {
     if (seq !== state.lyricsSeq) return;
     state.lyricsRaw = result;
     setLyrics(shown);
+    // Lyrics from a different-length version of the song: say so, since their timing is
+    // baked in and no amount of syncing with Spotify can fix it.
+    if (result.approximate) toast(t('toast.approxTiming'), 7000);
     // Lyrics can reveal a Japanese song with a kanji-only title; re-check the title.
     if (state.lyricsRaw.lines?.length) renderTrackText();
   } catch (e) {
@@ -826,7 +829,7 @@ function skip(dir) {
   control(() => (dir > 0 ? state.player.next() : state.player.previous()), null, 400);
 }
 
-function toast(message) {
+function toast(message, durationMs = 2600) {
   els.toast.textContent = message;
   els.toast.hidden = false;
   els.toast.classList.remove('show');
@@ -836,7 +839,7 @@ function toast(message) {
   toastTimer = setTimeout(() => {
     els.toast.classList.remove('show');
     setTimeout(() => (els.toast.hidden = true), 300);
-  }, 2600);
+  }, durationMs);
 }
 
 function bindUi() {

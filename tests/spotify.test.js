@@ -164,7 +164,7 @@ test('connectionInfo copes with nothing playing and partial failures', async () 
   assert.ok(info.error);
 });
 
-test('sample time ignores token refresh and slow first connections', async () => {
+test('sample time is the midpoint of the request itself, not counting a token refresh', async () => {
   let t = 0;
   const roundTrips = [1800, 200]; // a cold first request, then a normal one
   const fetchFn = async () => {
@@ -181,8 +181,8 @@ test('sample time ignores token refresh and slow first connections', async () =>
     },
   };
   const sp = createSpotify({ auth, fetchFn, now: () => t });
-  const first = await sp.nowPlaying(); // received at 700 + 1800 = 2500
-  assert.equal(first.sampledAt, 2500 - 900);
-  const second = await sp.nowPlaying(); // received at 2500 + 700 + 200 = 3400
-  assert.equal(second.sampledAt, 3400 - 100); // fastest round trip (200) / 2
+  const first = await sp.nowPlaying(); // sent at 700 (after the refresh), received at 2500
+  assert.equal(first.sampledAt, 1600);
+  const second = await sp.nowPlaying(); // sent at 3200, received at 3400
+  assert.equal(second.sampledAt, 3300);
 });

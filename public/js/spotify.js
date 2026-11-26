@@ -70,8 +70,6 @@ export function normalizePlayback(data, sampledAt) {
 }
 
 export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a), now = () => performance.now() }) {
-  let fastestRoundTrip = Infinity; // ms; the best estimate of plain network latency
-
   /** `timing`, if given, receives when the request went out and when the response arrived. */
   async function api(method, path, { query, headers, timing } = {}, retried = false) {
     const token = await auth.getAccessToken();
@@ -111,14 +109,12 @@ export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a)
     async nowPlaying() {
       const timing = {};
       const data = await api('GET', '/me/player/currently-playing', { query: { additional_types: 'episode' }, timing });
-      // Spotify measures progress_ms just before it answers, so about half a *plain* round
-      // trip before the response arrives. Only the request itself is timed (not a token
-      // refresh), and the fastest round trip seen stands in for the network latency: the
-      // first request after a page load also pays for connection setup, which would make
-      // the position look older than it is and the lyrics lag.
-      const roundTrip = Math.max(0, timing.received - timing.sent);
-      fastestRoundTrip = Math.min(fastestRoundTrip, roundTrip);
-      return normalizePlayback(data, timing.received - fastestRoundTrip / 2);
+      // When did Spotify measure progress_ms? Somewhere between sending and receiving;
+      // the midpoint of the request itself is the unbiased guess (a token refresh before
+      // it is not counted). Don't assume the reply was instant: on a car's mobile
+      // connection replies are often slow, and treating a slow reply as fresh made every
+      // report look like the lyrics were ahead, so they were pulled back and stayed late.
+      return normalizePlayback(data, (timing.sent + timing.received) / 2);
     },
     /**
      * The playing track's names in English. Spotify localises names (notably Chinese,

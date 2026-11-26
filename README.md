@@ -186,6 +186,9 @@ Spotify login locally, register `http://127.0.0.1:5173/` as a redirect URI.
 - LRCLIB is community-run. Popular songs are well covered, including many Chinese ones, but some songs have no lyrics,
   or only unsynced ones. The fallback searches only accept a match whose length agrees. Very rarely, a different song
   on the same album with the same length could still be picked.
+- Lyrics are matched to a version of the song with the same length (within 2 s). If LRCLIB only has a version a few
+  seconds longer or shorter (usually a different intro), the app still shows it but says the timing may be off. Its
+  timestamps are built into the lyrics file, so use − / + to adjust. It searches again for a better match a day later.
 - When a song has no word-level timing, the character fill is an estimate. Use the timing offset if it feels off.
 - Spotify reports the playback position only every couple of seconds, so after a seek the lyrics may take a moment to
   settle.

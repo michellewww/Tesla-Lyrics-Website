@@ -327,3 +327,45 @@ test('a remembered miss expires in an open tab too', async () => {
   t = 25 * 60 * 60 * 1000;
   assert.equal((await p.get(TRACK)).status, 'synced'); // after a day: searched again
 });
+
+test('a same-length version is preferred over a synced one a few seconds longer found first', async () => {
+  const fetchFn = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get') return jsonResponse(404, {});
+    if (u.searchParams.get('track_name')) {
+      // Step 2 finds a version 5 s longer (different intro: its lyrics would be off).
+      return jsonResponse(200, [{ id: 1, trackName: 'Song', artistName: 'Band', duration: 206, syncedLyrics: '[00:05.00]longer version' }]);
+    }
+    if (u.searchParams.get('q') === 'Song') {
+      return jsonResponse(200, [{ id: 2, trackName: 'Song', artistName: 'Band', duration: 201, syncedLyrics: '[00:01.00]same length' }]);
+    }
+    return jsonResponse(200, []);
+  });
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
+  const r = await p.get(TRACK);
+  assert.equal(r.lines[0].text, 'same length');
+  assert.ok(!r.approximate);
+});
+
+test('a different-length version is used only when nothing closer exists, flagged and re-checked daily', async () => {
+  let t = 0;
+  const store = memoryStorage();
+  const fetchFn = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get') return jsonResponse(404, {});
+    if (u.searchParams.get('track_name')) {
+      return jsonResponse(200, [{ id: 1, trackName: 'Song', artistName: 'Band', duration: 206, syncedLyrics: '[00:05.00]longer version' }]);
+    }
+    return jsonResponse(200, []);
+  });
+  const p = createLyricsProvider({ fetchFn, storage: store, now: () => t });
+  const r = await p.get(TRACK);
+  assert.equal(r.status, 'synced');
+  assert.equal(r.approximate, true);
+  const calls = fetchFn.calls.length;
+  await p.get(TRACK); // remembered for now...
+  assert.equal(fetchFn.calls.length, calls);
+  t = 25 * 60 * 60 * 1000; // ...but searched again a day later
+  await p.get(TRACK);
+  assert.ok(fetchFn.calls.length > calls);
+});
