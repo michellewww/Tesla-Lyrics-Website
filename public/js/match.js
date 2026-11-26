@@ -69,18 +69,32 @@ function artistKey(name, fold) {
     .join(' ');
 }
 
-/** Keys for a credit string: the whole string and each credited artist (with or without "Last, First" commas). */
+/**
+ * Credited names in one part of a credit. "Li, Ronghao" (one word each side of a single
+ * comma) is one person written surname-first, so it stays whole; otherwise commas
+ * separate artists ("Adele, Sam Smith").
+ */
+function commaNames(part) {
+  const pieces = part.split(',').map((p) => p.trim()).filter(Boolean);
+  // Only Latin-script names are written surname-first with a comma; CJK names have no
+  // inner spaces, so "李荣浩, 张惠妹" is two artists.
+  const oneWord = (p) => !/\s/.test(p) && !CJK_RE.test(p);
+  if (pieces.length === 2 && pieces.every(oneWord)) return [part];
+  return pieces.length > 1 ? pieces : [part];
+}
+
+/** Keys for a credit string: the whole string and each credited artist. */
 function artistKeys(credit, fold) {
   const raw = String(credit || '');
-  const parts = raw.split(ARTIST_SPLIT);
-  const names = [raw, ...parts, ...raw.split(','), ...parts.flatMap((p) => p.split(','))];
+  const names = [raw, ...raw.split(ARTIST_SPLIT).flatMap(commaNames)];
   return new Set(names.map((n) => artistKey(n, fold)).filter(Boolean));
 }
 
 /**
  * Same artist, allowing extra credits, word order and "Last, First": "Ronghao Li" matches
  * "Li, Ronghao & A-Mei" and "Ronghao Li, A-Mei Chang", but "Band" doesn't match
- * "Different Band" and "Li" doesn't match "Lily".
+ * "Different Band", "Li" doesn't match "Lily", and "Li, Ronghao" doesn't match
+ * "Li, Yuchun" just because they share a surname.
  */
 export function sameArtist(a, b, fold) {
   const keys = artistKeys(a, fold);

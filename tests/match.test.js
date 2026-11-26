@@ -70,3 +70,17 @@ test('sameArtist compares whole credited names', () => {
   assert.ok(sameArtist('Simon & Garfunkel', 'Simon and Garfunkel'));
   assert.ok(sameArtist('米津 玄師', '米津玄師'));
 });
+
+test('a shared surname is not enough for an artist match', () => {
+  assert.ok(!sameArtist('Li, Ronghao', 'Li, Yuchun'));
+  assert.ok(!sameArtist('Li, Yuchun', 'Ronghao Li'));
+  assert.ok(sameArtist('Li, Ronghao', 'Ronghao Li'));
+  assert.ok(sameArtist('Li, Ronghao & A‐Mei', 'Ronghao Li'));
+  assert.ok(sameArtist('Adele, Sam Smith', 'Adele'));
+  assert.ok(sameArtist('Ronghao Li, A-Mei Chang', 'A-Mei Chang'));
+});
+
+test('comma-separated CJK artists are separate people', () => {
+  assert.ok(sameArtist('李荣浩, 张惠妹', '张惠妹'));
+  assert.ok(!sameArtist('李荣浩, 张惠妹', '李宇春'));
+});

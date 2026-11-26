@@ -284,3 +284,46 @@ test('English artist names are searched with the English album name', async () =
   assert.ok(queries.includes('Ronghao Li Zong Heng Si Hai'), queries.join(' | '));
   assert.ok(!queries.includes('Ronghao Li 纵横四海'));
 });
+
+test('an interrupted search shows what it found but tries again later', async () => {
+  let t = 0;
+  let down = true;
+  const store = memoryStorage();
+  const fetchFn = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get') return jsonResponse(200, { id: 1, plainLyrics: 'plain words' });
+    if (down) return jsonResponse(503, {});
+    return jsonResponse(200, [{ id: 2, trackName: 'Song', artistName: 'Band', duration: 201, syncedLyrics: '[00:01.00]synced' }]);
+  });
+  const p = createLyricsProvider({ fetchFn, storage: store, now: () => t });
+  assert.equal((await p.get(TRACK)).status, 'plain'); // still shown despite the 503
+  down = false;
+  // A reload shortly after reuses it briefly...
+  const p2 = createLyricsProvider({ fetchFn, storage: store, now: () => t + 60_000 });
+  assert.equal((await p2.get(TRACK)).status, 'plain');
+  // ...but it isn't kept for good: later, the full search runs again and finds the synced lyrics.
+  t = 11 * 60 * 1000;
+  const p3 = createLyricsProvider({ fetchFn, storage: store, now: () => t });
+  assert.equal((await p3.get(TRACK)).status, 'synced');
+  // The same goes for a tab that stays open.
+  assert.equal((await p.get(TRACK)).status, 'synced');
+});
+
+test('a remembered miss expires in an open tab too', async () => {
+  let t = 0;
+  let available = false;
+  const fetchFn = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get') return available ? jsonResponse(200, { id: 1, syncedLyrics: '[00:01.00]new' }) : jsonResponse(404, {});
+    return jsonResponse(200, []);
+  });
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage(), now: () => t });
+  assert.equal((await p.get(TRACK)).status, 'none');
+  const calls = fetchFn.calls.length;
+  t = 60 * 60 * 1000;
+  assert.equal((await p.get(TRACK)).status, 'none');
+  assert.equal(fetchFn.calls.length, calls); // within a day: remembered
+  available = true;
+  t = 25 * 60 * 60 * 1000;
+  assert.equal((await p.get(TRACK)).status, 'synced'); // after a day: searched again
+});

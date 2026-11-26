@@ -7,6 +7,7 @@ const CACHE_PREFIX = 'lyrics:v2:';
 const CACHE_INDEX = 'lyrics:v2:index';
 const CACHE_MAX = 80;
 const MISS_TTL_MS = 24 * 60 * 60 * 1000; // a miss is re-checked after a day (LRCLIB grows)
+const INCOMPLETE_TTL_MS = 10 * 60 * 1000; // a search cut short by an error is retried after 10 min
 const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const HAN = /\p{Script=Han}/u;
 const KANA_HANGUL = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
@@ -143,14 +144,17 @@ export function createLyricsProvider({
         return null;
       }
     };
+    // Returns { record, incomplete }: incomplete when an error cut the search short, so
+    // a better match may still exist and the result shouldn't be kept for long.
     const finish = (fallback) => {
-      if (fallback) return fallback;
+      if (fallback) return { record: fallback, incomplete: Boolean(failure) };
       if (failure) throw failure;
-      return null;
+      return { record: null, incomplete: false };
     };
+    const hit = (record) => ({ record, incomplete: false });
 
     const first = await searchByNames(track, durationSec, fold, req);
-    if (first.found) return first.found;
+    if (first.found) return hit(first.found);
     let fallback = first.fallback;
 
     // 4) Spotify shows names in the browser's language (李荣浩 in a Chinese browser,
@@ -160,7 +164,7 @@ export function createLyricsProvider({
       en = await Promise.resolve().then(alternates).catch(() => null);
       if (en?.name && (en.name !== track.name || en.artists?.[0] !== track.artists?.[0])) {
         const second = await searchByNames(en, durationSec, fold, req);
-        if (second.found) return second.found;
+        if (second.found) return hit(second.found);
         fallback ||= second.fallback;
       }
     }
@@ -193,7 +197,7 @@ export function createLyricsProvider({
         maxDiff: 3,
         exact: true,
       });
-      if (good(best)) return best;
+      if (good(best)) return hit(best);
       fallback ||= best;
     }
 
@@ -216,10 +220,16 @@ export function createLyricsProvider({
         maxDiff: 2,
         exact: true,
       });
-      if (good(best)) return best;
+      if (good(best)) return hit(best);
       fallback ||= best;
     }
     return finish(fallback);
+  }
+
+  /** Misses and cut-short results expire; complete hits don't. */
+  function expired(entry) {
+    const ttl = entry.incomplete ? INCOMPLETE_TTL_MS : entry.status === 'none' ? MISS_TTL_MS : Infinity;
+    return Number.isFinite(ttl) && !(now() - (entry.checkedAt || 0) < ttl);
   }
 
   function readCache(id) {
@@ -262,19 +272,25 @@ export function createLyricsProvider({
      *   alternates: the same track's names in English, asked for only if the first lookup misses
      */
     async get(track, { alternates } = {}) {
-      if (memory.has(track.id)) return memory.get(track.id);
+      // The same expiry applies to the in-memory and the saved copy, so a tab left open
+      // re-checks too.
+      const inMemory = memory.get(track.id);
+      if (inMemory && !expired(inMemory)) return inMemory;
       const cached = readCache(track.id);
-      const staleMiss = cached?.status === 'none' && !(now() - (cached.checkedAt || 0) < MISS_TTL_MS);
-      if (cached?.status && !staleMiss) {
+      if (cached?.status && !expired(cached)) {
         memory.set(track.id, cached);
         return cached;
       }
-      const result = toResult(await lookup(track, alternates));
-      memory.set(track.id, result);
-      // Misses are remembered for a day (LRCLIB may add the song later); the Retry
-      // button calls forget() to search again right away.
-      writeCache(track.id, result.status === 'none' ? { ...result, checkedAt: now() } : result);
-      return result;
+      const { record, incomplete } = await lookup(track, alternates);
+      const result = toResult(record);
+      // Misses are re-checked after a day (LRCLIB may add the song later), and results of a
+      // search an error cut short after 10 minutes; full hits are kept. The Retry button
+      // calls forget() to search again right away.
+      const entry =
+        incomplete || result.status === 'none' ? { ...result, checkedAt: now(), ...(incomplete ? { incomplete: true } : {}) } : result;
+      memory.set(track.id, entry);
+      writeCache(track.id, entry);
+      return entry;
     },
 
     forget(trackId) {
