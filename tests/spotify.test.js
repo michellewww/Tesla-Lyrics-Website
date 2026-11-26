@@ -186,3 +186,21 @@ test('sample time is the midpoint of the request itself, not counting a token re
   const second = await sp.nowPlaying(); // sent at 3200, received at 3400
   assert.equal(second.sampledAt, 3300);
 });
+
+test('a stalled request fails after its deadline instead of hanging', async () => {
+  const sp = createSpotify({ auth: fakeAuth(), fetchFn: () => new Promise(() => {}), timeoutMs: 30 });
+  await assert.rejects(sp.nowPlaying(), /timed out/);
+});
+
+test('after a 429 every request waits out Retry-After without hitting Spotify', async () => {
+  let t = 1000;
+  const fetchFn = fakeFetch((url, init, i) => (i === 0 ? jsonResponse(429, {}, { 'Retry-After': '30' }) : jsonResponse(200, TRACK_RESPONSE)));
+  const sp = createSpotify({ auth: fakeAuth(), fetchFn, now: () => t });
+  await assert.rejects(sp.nowPlaying(), RateLimitError);
+  t += 1000;
+  await assert.rejects(sp.pause(), (e) => e instanceof RateLimitError && e.retryAfterSec === 29);
+  await assert.rejects(sp.nowPlaying(), RateLimitError);
+  assert.equal(fetchFn.calls.length, 1);
+  t += 30_000;
+  assert.equal((await sp.nowPlaying()).track.id, 't1');
+});

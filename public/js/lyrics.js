@@ -2,6 +2,7 @@
 // Prefers word-level timing (Lyricsfile) > line-synced LRC > plain text.
 import { parseLrc, parseLyricsfile, parsePlain } from './lrc.js';
 import { cleanTitle, pickBest } from './match.js';
+import { withDeadline } from './net.js';
 
 const CACHE_PREFIX = 'lyrics:v2:';
 const CACHE_INDEX = 'lyrics:v2:index';
@@ -82,8 +83,11 @@ export function createLyricsProvider({
   fetchFn = (...a) => globalThis.fetch(...a),
   storage = globalThis.localStorage,
   now = () => Date.now(),
+  timeoutMs = 10_000,
 } = {}) {
   const memory = new Map();
+  const inflight = new Map(); // track id → lookup in progress (shared by repeat callers)
+  const generation = new Map(); // track id → bumped by forget(), so older lookups don't save
   let pausedUntil = 0; // after a 429, LRCLIB asks clients to wait (Retry-After)
 
   async function request(path, params) {
@@ -92,15 +96,18 @@ export function createLyricsProvider({
     for (const [k, v] of Object.entries(params)) {
       if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
     }
-    const res = await fetchFn(url.toString(), { headers: client ? { 'Lrclib-Client': client } : {} });
-    if (res.status === 404) return null;
-    if (res.status === 429) {
-      const retryAfter = Number(res.headers?.get?.('Retry-After'));
-      pausedUntil = now() + (Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 30) * 1000;
-      throw new Error('LRCLIB rate limit');
-    }
-    if (!res.ok) throw new Error(`LRCLIB error ${res.status}`);
-    return res.json();
+    // The deadline covers the response and its body.
+    return withDeadline(timeoutMs, async (signal) => {
+      const res = await fetchFn(url.toString(), { headers: client ? { 'Lrclib-Client': client } : {}, signal });
+      if (res.status === 404) return null;
+      if (res.status === 429) {
+        const retryAfter = Number(res.headers?.get?.('Retry-After'));
+        pausedUntil = now() + (Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 30) * 1000;
+        throw new Error('LRCLIB rate limit');
+      }
+      if (!res.ok) throw new Error(`LRCLIB error ${res.status}`);
+      return res.json();
+    });
   }
 
   const good = (r) => Boolean(r && (r.syncedLyrics || r.instrumental));
@@ -184,7 +191,8 @@ export function createLyricsProvider({
     //    "Ronghao Li" in an English one), and LRCLIB often has the English ones.
     let en = null;
     if (localized && alternates && !failure) {
-      en = await Promise.resolve().then(alternates).catch(() => null);
+      // Optional extra: never let it hold up the remaining searches.
+      en = await withDeadline(Math.min(timeoutMs, 5000), () => Promise.resolve().then(alternates)).catch(() => null);
       if (en?.name && (en.name !== track.name || en.artists?.[0] !== track.artists?.[0])) {
         const second = await searchByNames(en, durationSec, fold, req);
         if (second.found) return hit(second.found);
@@ -306,6 +314,19 @@ export function createLyricsProvider({
         memory.set(track.id, cached);
         return cached;
       }
+      // One lookup per track at a time: switching away and back shares it, so an older
+      // lookup can't finish later and overwrite a newer result.
+      if (inflight.has(track.id)) return inflight.get(track.id);
+      const running = this.search(track, alternates).finally(() => {
+        if (inflight.get(track.id) === running) inflight.delete(track.id);
+      });
+      inflight.set(track.id, running);
+      return running;
+    },
+
+    /** The uncached lookup behind get(). */
+    async search(track, alternates) {
+      const startedAs = generation.get(track.id) || 0;
       const { record, incomplete } = await lookup(track, alternates);
       const result = toResult(record);
       const durationSec = track.durationMs ? Math.round(track.durationMs / 1000) : 0;
@@ -320,13 +341,18 @@ export function createLyricsProvider({
         incomplete || result.status === 'none' || result.approximate
           ? { ...result, checkedAt: now(), ...(incomplete ? { incomplete: true } : {}) }
           : result;
-      memory.set(track.id, entry);
-      writeCache(track.id, entry);
+      // forget() (the Retry button) during the lookup makes this result out of date.
+      if ((generation.get(track.id) || 0) === startedAs) {
+        memory.set(track.id, entry);
+        writeCache(track.id, entry);
+      }
       return entry;
     },
 
     forget(trackId) {
       memory.delete(trackId);
+      inflight.delete(trackId);
+      generation.set(trackId, (generation.get(trackId) || 0) + 1);
       try {
         storage?.removeItem(CACHE_PREFIX + trackId);
       } catch {

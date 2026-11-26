@@ -369,3 +369,39 @@ test('a different-length version is used only when nothing closer exists, flagge
   await p.get(TRACK);
   assert.ok(fetchFn.calls.length > calls);
 });
+
+test('a stalled LRCLIB request times out so the UI can offer a retry', async () => {
+  const p = createLyricsProvider({ fetchFn: () => new Promise(() => {}), storage: memoryStorage(), timeoutMs: 30 });
+  await assert.rejects(p.get(TRACK), /timed out/);
+});
+
+test('a stalled English-names lookup does not block the remaining searches', async () => {
+  const fetchFn = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get') return jsonResponse(404, {});
+    if (u.searchParams.get('q') === '對等關係') {
+      return jsonResponse(200, [{ id: 3, trackName: '對等關係', artistName: '李榮浩', duration: 327, syncedLyrics: '[00:01.00]found' }]);
+    }
+    return jsonResponse(200, []);
+  });
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage(), timeoutMs: 40 });
+  const r = await p.get(CN_TRACK, { alternates: () => new Promise(() => {}) });
+  assert.equal(r.status, 'synced');
+});
+
+test('switching away and back shares one lookup, so an older one cannot overwrite a newer result', async () => {
+  let release;
+  const gate = new Promise((r) => (release = r));
+  const fetchFn = fakeFetch(async () => {
+    await gate;
+    return jsonResponse(200, { id: 1, syncedLyrics: '[00:01.00]hi' });
+  });
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
+  const first = p.get(TRACK);
+  const second = p.get(TRACK);
+  release();
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(a.status, 'synced');
+  assert.equal(a, b);
+  assert.equal(fetchFn.calls.length, 1);
+});

@@ -1,6 +1,8 @@
 // Minimal Spotify Web API client for the player endpoints this app needs.
 // All of these remain available to Development Mode apps after Spotify's Feb 2026 changes.
 
+import { withDeadline } from './net.js';
+
 const API = 'https://api.spotify.com/v1';
 
 export class AuthRequiredError extends Error {
@@ -92,18 +94,30 @@ function useNetworkTiming(timing) {
   }
 }
 
-export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a), now = () => performance.now() }) {
+export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a), now = () => performance.now(), timeoutMs = 8000 }) {
+  // After a 429, every request (polls, commands, diagnostics) waits until Spotify's
+  // Retry-After has passed, however it was triggered.
+  let blockedUntil = 0;
+
   /** `timing`, if given, receives when the request went out and when the response arrived. */
   async function api(method, path, { query, headers, timing } = {}, retried = false) {
+    if (blockedUntil && now() < blockedUntil) throw new RateLimitError(Math.ceil((blockedUntil - now()) / 1000));
     const token = await auth.getAccessToken();
     if (!token) throw new AuthRequiredError();
     const qs = query ? `?${new URLSearchParams(query)}` : '';
     if (timing) timing.sent = now();
-    const res = await fetchFn(`${API}${path}${qs}`, {
-      method,
-      headers: { ...headers, Authorization: `Bearer ${token}` },
+    // One deadline covers the response and its body, so a stalled request fails (and the
+    // caller can retry) instead of hanging.
+    const { res, text } = await withDeadline(timeoutMs, async (signal) => {
+      const res = await fetchFn(`${API}${path}${qs}`, {
+        method,
+        headers: { ...headers, Authorization: `Bearer ${token}` },
+        signal,
+      });
+      if (timing) timing.received = now();
+      const skipBody = res.status === 204 || res.status === 401 || res.status === 429;
+      return { res, text: skipBody ? '' : await res.text() };
     });
-    if (timing) timing.received = now();
     if (timing) timing.url = `${API}${path}${qs}`;
 
     if (res.status === 401 && !retried) {
@@ -114,11 +128,12 @@ export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a)
     if (res.status === 401) throw new AuthRequiredError();
     if (res.status === 429) {
       const retryAfter = Number(res.headers.get('Retry-After'));
-      throw new RateLimitError(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 5);
+      const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 5;
+      blockedUntil = now() + wait * 1000;
+      throw new RateLimitError(wait);
     }
     if (res.status === 204) return null;
 
-    const text = await res.text();
     let body = null;
     try {
       body = text ? JSON.parse(text) : null;

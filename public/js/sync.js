@@ -55,13 +55,18 @@ export class PlaybackSync {
 
   /** The user tapped a line: show it now and hold it until Spotify confirms. */
   seek(ms) {
+    const at = this.now();
+    // Where Spotify's (not yet updated) timeline will keep pointing until the seek lands.
+    const from = this.#predicted(at) - this.offset;
+    const wasPlaying = this.clock.playing;
     this.clock.seek(ms);
-    this.pendingSeek = { target: Math.max(0, ms), at: this.now() };
+    this.pendingSeek = { target: Math.max(0, ms), at, from, wasPlaying, other: null };
+    return this.pendingSeek;
   }
 
-  /** The seek command failed: trust Spotify again. */
-  cancelSeek() {
-    this.pendingSeek = null;
+  /** The seek command failed: trust Spotify again (unless a newer seek replaced it). */
+  cancelSeek(seek) {
+    if (!seek || this.pendingSeek === seek) this.pendingSeek = null;
   }
 
   setPlaying(playing) {
@@ -89,31 +94,57 @@ export class PlaybackSync {
     this.impreciseRun = precise ? 0 : this.impreciseRun + 1;
     if (this.impreciseRun >= IMPRECISE_RUN) precise = true;
 
-    // A tapped line: keep it until Spotify's timeline reaches it, or give up after a while.
+    // A tapped line. The car applies the seek some time after the tap, so accept any
+    // position the target could have reached since then. Until that shows up, keep the
+    // tapped line while Spotify still reports the old timeline.
     if (this.pendingSeek) {
       const ps = this.pendingSeek;
-      const wanted = ps.target + (isPlaying ? at - ps.at : 0);
-      if (Math.abs(progressMs - wanted) < JUMP_MS + uncertaintyMs) {
+      const elapsed = at - ps.at;
+      const slack = JUMP_MS + uncertaintyMs;
+      const wanted = ps.target + (isPlaying ? elapsed : 0);
+      const done = () => {
         this.pendingSeek = null;
         this.offset = 0;
         this.#forget();
-        return; // confirmed; we're already showing it
-      }
-      if (this.now() - ps.at < SEEK_HOLD_MS) {
+      };
+      const followPlayState = () => {
         if (isPlaying !== this.clock.playing) this.clock.setPlaying(isPlaying);
+      };
+      if (progressMs >= ps.target - slack && progressMs <= wanted + slack) {
+        done(); // the seek landed (maybe late): go with where Spotify says it is now
+        if (!isPlaying || (precise && Math.abs(progressMs - wanted) > BEHIND_MS)) this.#set(progressMs, at, isPlaying);
+        else followPlayState();
         return;
       }
-      this.pendingSeek = null;
-      this.offset = 0;
-      this.#forget();
+      if (this.now() - ps.at < SEEK_HOLD_MS) {
+        const stale = Math.abs(progressMs - (ps.from + (ps.wasPlaying ? elapsed : 0))) < slack;
+        if (stale || !precise) {
+          followPlayState();
+          return;
+        }
+        // Neither the old timeline nor our seek: something else happened (a seek on the
+        // car's own controls). Follow it once two replies agree.
+        const origin = progressMs - (isPlaying ? at : 0);
+        const seen = ps.other;
+        ps.other = origin;
+        if (seen === null || Math.abs(seen - origin) > JUMP_AGREE_MS) {
+          followPlayState();
+          return;
+        }
+      }
+      done();
       if (precise) this.#set(progressMs, at, isPlaying);
+      else followPlayState();
       return;
     }
 
-    // Paused or resumed: follow it (from Spotify's position only if the reply was timely).
+    // Paused or resumed. Spotify's position at such a change is fresh from the player, so
+    // a late-start offset no longer applies. A paused position is exact however slow the
+    // reply was.
     if (isPlaying !== this.clock.playing) {
-      if (precise) this.#set(progressMs + this.offset, at, isPlaying);
-      else this.clock.setPlaying(isPlaying);
+      this.offset = 0;
+      if (!isPlaying || precise) this.#set(progressMs, at, isPlaying);
+      else this.clock.setPlaying(true);
       this.#forget();
       return;
     }
@@ -130,7 +161,12 @@ export class PlaybackSync {
       return;
     }
 
-    const diff = progressMs + this.offset - this.clock.position(at); // > 0: we're behind
+    // Compare against where the clock would be without stopping at the song's end, so a
+    // repeat or a rewind from the end reads as the same jump in consecutive replies.
+    const predicted = this.#predicted(at);
+    const duration = this.clock.durationMs;
+    if (predicted >= duration && progressMs >= duration - JUMP_MS) return; // ended; waiting for what's next
+    const diff = progressMs + this.offset - predicted; // > 0: we're behind
 
     // A big difference is a seek, a rewind, or Spotify catching up — or one reply with a
     // bad timestamp. Only believe it when the next reply says the same.
@@ -159,7 +195,7 @@ export class PlaybackSync {
       if (this.offset > 0 && Math.abs(typical - this.offset) < CATCH_UP_MS) {
         this.offset = 0; // Spotify caught up with a short late start: no move
       } else {
-        this.#set(this.clock.position(at) + typical, at, isPlaying);
+        this.#set(predicted + typical, at, isPlaying);
       }
       this.diffs = this.diffs.map((d) => d - typical); // same reports, measured from the new state
     }
@@ -188,6 +224,12 @@ export class PlaybackSync {
     const sinceEnd = at - endedAt;
     const late = sinceEnd - progressMs;
     return sinceEnd >= 0 && sinceEnd < MAX_LATE_START_MS + 5000 && late > 0 && late < MAX_LATE_START_MS ? late : 0;
+  }
+
+  /** The clock's position at `at`, not capped at the song's length. */
+  #predicted(at) {
+    const c = this.clock;
+    return c.baseMs + (c.playing ? at - c.baseAt : 0);
   }
 
   #forget() {

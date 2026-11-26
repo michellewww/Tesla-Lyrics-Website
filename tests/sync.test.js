@@ -235,3 +235,78 @@ test('when every reply is slow, they are still used rather than ignored forever'
   }
   assert.ok(Math.abs(h.sync.position() - (h.t + 2000)) < 300, String(h.sync.position()));
 });
+
+// ---- Review findings (network/sync audit of 7072f98) ----
+
+test('a song that repeats after reaching its end is followed', () => {
+  const h = harness();
+  for (let i = 0; i <= 32; i++) {
+    h.t = i * 1000;
+    h.report({ trackId: 'a', progressMs: Math.min(h.t, 30_000), durationMs: 30_000 });
+  }
+  for (let i = 33; i <= 37; i++) {
+    h.t = i * 1000;
+    h.report({ trackId: 'a', progressMs: h.t - 32_000, durationMs: 30_000 }); // restarted at t = 32 s
+  }
+  assert.ok(Math.abs(h.sync.position() - 5000) < 300, String(h.sync.position()));
+});
+
+test('a seek the car applies late is recognised instead of held for 20 s', () => {
+  const h = harness();
+  for (let i = 0; i <= 5; i++) {
+    h.t = i * 1000;
+    h.report({ trackId: 'a', progressMs: 20_000 + h.t });
+  }
+  h.sync.seek(90_000); // tap at t = 5 s; the car seeks at t = 8 s
+  for (let i = 6; i <= 8; i++) {
+    h.t = i * 1000;
+    h.report({ trackId: 'a', progressMs: 20_000 + h.t });
+  }
+  h.t = 9000;
+  h.report({ trackId: 'a', progressMs: 91_000 });
+  assert.ok(Math.abs(h.sync.position() - 91_000) < 300, String(h.sync.position()));
+  assert.equal(h.sync.pendingSeek, null);
+});
+
+test('a seek on the car during a pending web seek is followed', () => {
+  const h = harness();
+  h.report({ trackId: 'a', progressMs: 20_000 });
+  h.sync.seek(90_000);
+  h.t = 2000;
+  h.report({ trackId: 'a', progressMs: 30_000 }); // driver seeks to 30 s
+  h.t = 3000;
+  h.report({ trackId: 'a', progressMs: 31_000 });
+  assert.ok(Math.abs(h.sync.position() - 31_000) < 300, String(h.sync.position()));
+});
+
+test('seek confirmation that arrives paused stops the clock', () => {
+  const h = harness();
+  h.report({ trackId: 'a', progressMs: 20_000 });
+  h.sync.seek(90_000);
+  h.t = 1000;
+  h.report({ trackId: 'a', progressMs: 90_000, isPlaying: false });
+  h.t = 5000;
+  assert.ok(Math.abs(h.sync.position() - 90_000) < 300, String(h.sync.position()));
+});
+
+test('an older failed seek does not cancel a newer one', () => {
+  const h = harness();
+  h.report({ trackId: 'a', progressMs: 20_000 });
+  const first = h.sync.seek(50_000);
+  h.sync.seek(90_000);
+  h.sync.cancelSeek(first);
+  assert.equal(h.sync.pendingSeek.target, 90_000);
+});
+
+test('pausing in the car drops a late-start offset', () => {
+  const h = harness();
+  followOn(h); // song B carries a 5 s offset
+  h.t = 45_000;
+  h.report({ trackId: 'b', progressMs: 10_000, isPlaying: false }); // exact paused position
+  assert.equal(h.sync.position(), 10_000);
+  h.t = 50_000;
+  h.report({ trackId: 'b', progressMs: 10_000, isPlaying: true });
+  h.t = 52_000;
+  h.report({ trackId: 'b', progressMs: 12_000 });
+  assert.ok(Math.abs(h.sync.position() - 12_000) < 300, String(h.sync.position()));
+});

@@ -814,13 +814,14 @@ function seekTo(ms) {
   state.followPausedUntil = 0;
   els.recenter.hidden = true;
   // The tapped line is shown at once and held until Spotify confirms it (see sync.js).
+  let pending;
   control(
     () =>
       state.player.seek(target).catch((e) => {
-        clock.cancelSeek();
+        clock.cancelSeek(pending); // only this seek: a newer tap keeps its own hold
         throw e;
       }),
-    () => clock.seek(target),
+    () => (pending = clock.seek(target)),
     900,
   );
 }

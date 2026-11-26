@@ -2,6 +2,8 @@
 // https://developer.spotify.com/documentation/web-api/tutorials/code-pkce-flow
 // No client secret is involved, which is what makes this safe for a static site.
 
+import { withDeadline } from './net.js';
+
 const AUTHORIZE_URL = 'https://accounts.spotify.com/authorize';
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
 
@@ -71,17 +73,22 @@ export function createAuth({
   }
 
   async function postToken(params) {
-    const res = await fetchFn(TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ client_id: clientId, ...params }).toString(),
+    // A stalled token request would block every Spotify call waiting on it.
+    const { res, data } = await withDeadline(10_000, async (signal) => {
+      const res = await fetchFn(TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ client_id: clientId, ...params }).toString(),
+        signal,
+      });
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+        /* non-JSON error body */
+      }
+      return { res, data };
     });
-    let data = null;
-    try {
-      data = await res.json();
-    } catch {
-      /* non-JSON error body */
-    }
     if (!res.ok) {
       throw new AuthError(data?.error_description || data?.error || `Token request failed (${res.status})`, data?.error);
     }
