@@ -354,6 +354,7 @@ function applyPlayback(pb) {
       trackId: track.id,
       progressMs: pb.progressMs,
       sampledAt: pb.sampledAt,
+      uncertaintyMs: pb.uncertaintyMs,
       isPlaying: pb.isPlaying,
       durationMs: track.durationMs,
     });

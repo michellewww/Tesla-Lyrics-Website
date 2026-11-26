@@ -157,7 +157,8 @@ The app is built for the car's Chromium-based browser:
   - small differences are judged on the median of recent reports;
   - moving back needs three agreeing reports;
   - a song that follows the previous one is counted from the moment that one ended;
-  - seeks and rewinds in the car are followed at once;
+  - seeks and rewinds in the car are followed once two replies in a row agree, so one badly timed reply is ignored;
+  - replies that took seconds to arrive (slow network, busy page) don't move the lyrics;
   - a tapped line is held until Spotify confirms it.
 
   A new song still appears only once Spotify reports it. To try it without a car, open `?demo&lag=5`.

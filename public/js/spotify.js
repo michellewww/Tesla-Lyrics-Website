@@ -69,6 +69,29 @@ export function normalizePlayback(data, sampledAt) {
   };
 }
 
+/**
+ * Replace our own send/receive stamps with the browser's network timing for that request,
+ * when it has one. Ours are taken on the page's main thread, so when the page is busy
+ * (parsing a big lyrics dictionary on a car's CPU, say) a reply that arrived on time gets
+ * stamped seconds late, and the position it carries looks seconds off.
+ */
+function useNetworkTiming(timing) {
+  try {
+    const perf = globalThis.performance;
+    const entries = perf?.getEntriesByName?.(timing.url, 'resource') || [];
+    const e = entries[entries.length - 1];
+    // Must be this request: started no earlier than we sent it, finished before we noticed.
+    if (e && e.responseEnd > 0 && e.startTime >= timing.sent - 5 && e.responseEnd <= timing.received + 5) {
+      timing.sent = e.fetchStart || e.startTime;
+      timing.received = e.responseEnd;
+    }
+    // The browser keeps only ~250 entries and then stops recording new ones.
+    if (perf?.getEntriesByType?.('resource').length > 150) perf.clearResourceTimings?.();
+  } catch {
+    /* timing API unavailable: keep our own stamps */
+  }
+}
+
 export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a), now = () => performance.now() }) {
   /** `timing`, if given, receives when the request went out and when the response arrived. */
   async function api(method, path, { query, headers, timing } = {}, retried = false) {
@@ -81,6 +104,7 @@ export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a)
       headers: { ...headers, Authorization: `Bearer ${token}` },
     });
     if (timing) timing.received = now();
+    if (timing) timing.url = `${API}${path}${qs}`;
 
     if (res.status === 401 && !retried) {
       const fresh = await auth.refresh();
@@ -114,7 +138,12 @@ export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a)
       // it is not counted). Don't assume the reply was instant: on a car's mobile
       // connection replies are often slow, and treating a slow reply as fresh made every
       // report look like the lyrics were ahead, so they were pulled back and stayed late.
-      return normalizePlayback(data, (timing.sent + timing.received) / 2);
+      useNetworkTiming(timing);
+      const pb = normalizePlayback(data, (timing.sent + timing.received) / 2);
+      // Half the round trip is how far off that guess can be; sync.js won't place the
+      // position from a reply that took seconds.
+      pb.uncertaintyMs = Math.max(0, timing.received - timing.sent) / 2;
+      return pb;
     },
     /**
      * The playing track's names in English. Spotify localises names (notably Chinese,

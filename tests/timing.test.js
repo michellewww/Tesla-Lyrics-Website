@@ -41,7 +41,7 @@ for (const slowest of [1200, 2500]) {
     for (let poll = 0; poll < 235; poll++) {
       sim.t = Math.max(sim.t, poll * 1000);
       const pb = await sim.spotify.nowPlaying();
-      sim.sync.report({ trackId: pb.track.id, progressMs: pb.progressMs, sampledAt: pb.sampledAt, isPlaying: true, durationMs: pb.track.durationMs });
+      sim.sync.report({ trackId: pb.track.id, progressMs: pb.progressMs, sampledAt: pb.sampledAt, uncertaintyMs: pb.uncertaintyMs, isPlaying: true, durationMs: pb.track.durationMs });
       const song = sim.songAt(sim.t);
       if (song.id === pb.track.id && sim.t - song.start > 10_000) errors.push(sim.sync.position(sim.t) - (sim.t - song.start));
     }
