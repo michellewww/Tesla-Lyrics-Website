@@ -596,6 +596,10 @@ function renderLyrics() {
     } else if (synced) {
       div.dataset.i = String(i);
       const segs = lineSegments(line, state.lines[i + 1]?.time);
+      // The character fill is only shown where the lyrics really time each word. A line
+      // with just a start time is highlighted as a whole instead of guessing.
+      const wordTimed = (line.words?.length ?? 0) > 1;
+      if (!wordTimed) div.classList.add('whole');
       const main = document.createElement('span');
       main.className = 'main';
       state.segEls[i] = segs.map((seg) => {
@@ -605,7 +609,7 @@ function renderLyrics() {
         main.append(span);
         return span;
       });
-      state.segs[i] = segs;
+      state.segs[i] = wordTimed ? segs : null;
       div.append(main);
       if (line.translation) {
         const tr = document.createElement('span');

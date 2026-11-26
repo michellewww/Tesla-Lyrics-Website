@@ -9,9 +9,8 @@ no server and no client secret.
 
 ## Features
 
-- **Karaoke-style, character-by-character highlighting.** It uses real word timings when LRCLIB has them (its
-  "Lyricsfile" format or enhanced LRC). Otherwise it estimates timing inside each line, splitting Chinese,
-  Japanese and Korean text per character and Latin text per word.
+- **Karaoke-style, word-by-word highlighting** when the lyrics have real word timings (LRCLIB's "Lyricsfile" format
+  or enhanced LRC). Lines without word timing are highlighted as a whole line; nothing is guessed.
 - **Finds lyrics in any language or script.** If the exact lookup misses, it keeps trying:
   - with Spotify's English names (Spotify shows 李荣浩 or "Ronghao Li" depending on the browser's language);
   - by title alone, in Simplified and Traditional (Taiwan and Hong Kong forms);
@@ -66,7 +65,7 @@ LRCLIB ──(get → search → free-text search)──▶ lyrics ────�
 | `relay/qq-lyrics-worker.js` | The relay (a Cloudflare Worker) that passes lyric requests on to QQ Music; not part of the site |
 | `public/js/lrc.js` | LRC parser (multi-timestamp, `[offset]`, enhanced word tags, translations), Lyricsfile parser |
 | `public/js/yaml.js` | Tiny YAML-subset parser for LRCLIB's Lyricsfile |
-| `public/js/karaoke.js` | Splits a line into timed segments (exact or estimated) for the character fill |
+| `public/js/karaoke.js` | Splits a line into timed segments for the word-by-word fill |
 | `public/js/match.js` | Cleans Spotify titles ("- Remastered 2011", "(feat. X)") and picks the best search result |
 | `public/js/i18n.js` | English / 简体中文 strings |
 | `public/js/t2s.js` | Traditional → Simplified via the vendored opencc-js (`public/vendor/opencc-js/`) |
@@ -226,7 +225,7 @@ Spotify login locally, register `http://127.0.0.1:5173/` as a redirect URI.
 - Lyrics are matched to a version of the song with the same length (within 2 s). If LRCLIB only has a version a few
   seconds longer or shorter (usually a different intro), the app still shows it but says the timing may be off. Its
   timestamps are built into the lyrics file, so use − / + to adjust. It searches again for a better match a day later.
-- When a song has no word-level timing, the character fill is an estimate. Use the timing offset if it feels off.
+- Most songs, and all lyrics from NetEase or QQ Music, have line timing only, so they highlight line by line.
 - Spotify reports the playback position only every couple of seconds, so after a seek the lyrics may take a moment to
   settle.
 
