@@ -87,5 +87,9 @@ test('settings are validated and persisted', () => {
   assert.equal(s.highlight, 'default');
   assert.equal(s.karaoke, false);
   assert.deepEqual(sanitize('garbage'), { ...DEFAULTS });
+  assert.equal(sanitize({ lineGap: 0.1 }).lineGap, 0.5);
+  assert.equal(sanitize({ lineGap: 1.73 }).lineGap, 1.73);
+  assert.equal(sanitize({ lineGap: 9 }).lineGap, 2.5);
+  assert.equal(sanitize({ lineGap: 'wide' }).lineGap, DEFAULTS.lineGap);
   assert.deepEqual(loadSettings(memoryStorage({ 'settings:v1': '{not json' })), { ...DEFAULTS });
 });

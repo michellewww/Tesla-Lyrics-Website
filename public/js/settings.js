@@ -5,6 +5,7 @@ const KEY = 'settings:v1';
 
 export const DEFAULTS = Object.freeze({
   fontScale: 1, // 0.6 – 1.8
+  lineGap: 1, // space between lyric lines, 0.5 – 2.5 × the default
   offsetMs: 0, // > 0 shows lyrics earlier, < 0 later
   align: 'center', // 'left' | 'center'
   karaoke: true, // character-by-character fill of the current line
@@ -22,7 +23,7 @@ const CHOICES = {
   lang: ['auto', 'en', 'zh-CN'],
 };
 
-export const LIMITS = { fontScale: [0.6, 1.8], offsetMs: [-10_000, 10_000] };
+export const LIMITS = { fontScale: [0.6, 1.8], lineGap: [0.5, 2.5], offsetMs: [-10_000, 10_000] };
 
 const clamp = (v, [lo, hi]) => Math.min(hi, Math.max(lo, v));
 
@@ -31,6 +32,7 @@ export function sanitize(input) {
   const s = { ...DEFAULTS };
   if (!input || typeof input !== 'object') return s;
   if (Number.isFinite(input.fontScale)) s.fontScale = Math.round(clamp(input.fontScale, LIMITS.fontScale) * 100) / 100;
+  if (Number.isFinite(input.lineGap)) s.lineGap = Math.round(clamp(input.lineGap, LIMITS.lineGap) * 100) / 100;
   if (Number.isFinite(input.offsetMs)) s.offsetMs = Math.round(clamp(input.offsetMs, LIMITS.offsetMs));
   for (const [k, allowed] of Object.entries(CHOICES)) if (allowed.includes(input[k])) s[k] = input[k];
   for (const k of ['karaoke', 'translation', 'simplified']) if (typeof input[k] === 'boolean') s[k] = input[k];

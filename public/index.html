@@ -32,6 +32,8 @@
     <symbol id="i-note" viewBox="0 0 24 24"><path d="M9 18.5a3 3 0 1 1-2-2.83V6.6a1 1 0 0 1 .76-.97l10-2.5A1 1 0 0 1 19 4.1v11.4a3 3 0 1 1-2-2.83V8.03l-8 2v8.47z"/></symbol>
     <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.6"/><path d="M12 1.8v2.6M12 19.6v2.6M1.8 12h2.6M19.6 12h2.6M4.8 4.8l1.8 1.8M17.4 17.4l1.8 1.8M4.8 19.2l1.8-1.8M17.4 6.6l1.8-1.8" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
     <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.7 14.9A8.8 8.8 0 0 1 9.1 3.3a.6.6 0 0 0-.8-.7A9.8 9.8 0 1 0 21.4 15.7a.6.6 0 0 0-.7-.8z"/></symbol>
+    <symbol id="i-gap-less" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="2.2" rx="1.1"/><rect x="4" y="10.9" width="16" height="2.2" rx="1.1"/><rect x="4" y="14.8" width="16" height="2.2" rx="1.1"/></symbol>
+    <symbol id="i-gap-more" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="2.2" rx="1.1"/><rect x="4" y="10.9" width="16" height="2.2" rx="1.1"/><rect x="4" y="18.8" width="16" height="2.2" rx="1.1"/></symbol>
     <symbol id="i-clock" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7V7z"/></symbol>
   </svg>
 
@@ -146,6 +148,15 @@
           <input id="font-range" type="range" min="60" max="180" step="5">
           <button type="button" class="pill" data-font-step="0.1"><span class="aa big-a">A</span></button>
           <output id="font-value" class="value"></output>
+        </div>
+      </div>
+      <div class="row">
+        <label for="gap-range" data-i18n="settings.lineGap">Line spacing</label>
+        <div class="range-row">
+          <button type="button" class="pill" data-gap-step="-0.1" data-i18n-aria="aria.lessGap"><svg><use href="#i-gap-less"/></svg></button>
+          <input id="gap-range" type="range" min="50" max="250" step="10">
+          <button type="button" class="pill" data-gap-step="0.1" data-i18n-aria="aria.moreGap"><svg><use href="#i-gap-more"/></svg></button>
+          <output id="gap-value" class="value"></output>
         </div>
       </div>
       <div class="row">

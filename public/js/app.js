@@ -45,6 +45,8 @@ const els = {
   syncLabel: $('sync-label'),
   fontRange: $('font-range'),
   fontValue: $('font-value'),
+  gapRange: $('gap-range'),
+  gapValue: $('gap-value'),
   offsetValue: $('offset-value'),
   artA: $('art-a'),
   artB: $('art-b'),
@@ -182,6 +184,7 @@ function showLogin(message) {
 
 function applySettings() {
   root.style.setProperty('--font-scale', String(settings.fontScale));
+  root.style.setProperty('--line-gap', String(settings.lineGap));
   root.dataset.align = settings.align;
   root.dataset.hl = settings.highlight;
   root.dataset.bg = settings.background;
@@ -208,6 +211,8 @@ function updateSetting(key, value) {
 function syncPanel() {
   els.fontRange.value = String(Math.round(settings.fontScale * 100));
   els.fontValue.textContent = `${Math.round(settings.fontScale * 100)}%`;
+  if (els.gapRange) els.gapRange.value = String(Math.round(settings.lineGap * 100));
+  if (els.gapValue) els.gapValue.textContent = `${Math.round(settings.lineGap * 100)}%`;
   els.offsetValue.textContent = formatOffset(settings.offsetMs, true);
   for (const group of document.querySelectorAll('[data-setting]')) {
     const key = group.dataset.setting;
@@ -331,6 +336,11 @@ function setTrack(track) {
   state.lastSecond = -1;
   renderTrackText();
   els.tDur.textContent = formatTime(track?.durationMs ?? 0);
+  // The animation loop only runs the bar while something plays, so reset it here.
+  els.tPos.textContent = formatTime(0);
+  els.barFill.style.transform = 'scaleX(0)';
+  els.barThumb.style.transform = 'translateX(0%)';
+  els.seekbar.setAttribute('aria-valuenow', '0');
 
   if (track?.image) {
     els.cover.src = track.image;
@@ -445,10 +455,10 @@ function updateThemeChrome() {
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', bg || '#121212');
   // The toggle shows the current mode; its label says what tapping it does.
   const dark = root.dataset.theme === 'dark';
-  els.themeBtn.querySelector('use').setAttribute('href', dark ? '#i-moon' : '#i-sun');
   const label = t(dark ? 'aria.toLight' : 'aria.toDark');
-  els.themeBtn.setAttribute('aria-label', label);
-  els.themeBtn.title = label;
+  els.themeBtn?.querySelector('use')?.setAttribute('href', dark ? '#i-moon' : '#i-sun');
+  els.themeBtn?.setAttribute('aria-label', label);
+  if (els.themeBtn) els.themeBtn.title = label;
   syncPanel();
 }
 
@@ -588,7 +598,7 @@ function renderChip() {
   const key = s === 'synced' ? (state.lyrics.wordSynced ? 'chip.word' : 'chip.line') : s === 'plain' ? 'chip.plain' : null;
   els.syncChip.hidden = !key;
   if (key) els.syncChip.textContent = t(key);
-  els.simplifiedChip.hidden = !state.lyrics.simplified;
+  if (els.simplifiedChip) els.simplifiedChip.hidden = !state.lyrics.simplified;
 }
 
 function renderPlayState() {
@@ -784,7 +794,7 @@ function toast(message) {
 
 function bindUi() {
   els.play.addEventListener('click', togglePlay);
-  els.themeBtn.addEventListener('click', () => theme.toggle());
+  els.themeBtn?.addEventListener('click', () => theme.toggle());
   els.prev.addEventListener('click', () => skip(-1));
   els.next.addEventListener('click', () => skip(1));
   $('font-down').addEventListener('click', () => changeFont(-0.1));
@@ -846,6 +856,13 @@ function bindUi() {
     if (e.target === els.menu) els.menu.close(); // tap outside the sheet
   });
   els.fontRange.addEventListener('input', () => updateSetting('fontScale', Number(els.fontRange.value) / 100));
+  els.gapRange?.addEventListener('input', () => updateSetting('lineGap', Number(els.gapRange.value) / 100));
+  for (const b of document.querySelectorAll('[data-gap-step]')) {
+    b.addEventListener('click', () => {
+      const next = Math.round((settings.lineGap + Number(b.dataset.gapStep)) * 100) / 100;
+      updateSetting('lineGap', Math.min(LIMITS.lineGap[1], Math.max(LIMITS.lineGap[0], next)));
+    });
+  }
   for (const b of document.querySelectorAll('[data-font-step]')) {
     b.addEventListener('click', () => changeFont(Number(b.dataset.fontStep), { quiet: true }));
   }

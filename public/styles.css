@@ -6,6 +6,7 @@
 
 :root {
   --font-scale: 1;
+  --line-gap: 1; /* Settings → Line spacing */
   --lyric-size: clamp(26px, calc(1.9vw + 1.7vh), 62px);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial,
     "Noto Sans", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei",
@@ -410,7 +411,7 @@ html[data-align="center"] .lyrics { text-align: center; padding-left: clamp(24px
 
 .line {
   margin: 0;
-  padding: 0.3em 0;
+  padding: calc(0.3em * var(--line-gap)) 0;
   font-size: calc(var(--lyric-size) * var(--font-scale));
   font-weight: 750;
   line-height: 1.28;
@@ -470,7 +471,7 @@ html[data-align="center"] .line.gap { justify-content: center; }
   transform: none;
   cursor: default;
 }
-.lyrics.is-plain .line.spacer { height: 0.9em; padding: 0; }
+.lyrics.is-plain .line.spacer { height: calc(0.9em * var(--line-gap)); padding: 0; }
 
 .status {
   position: absolute;
