@@ -12,6 +12,13 @@ no server and no client secret.
 - **Karaoke-style, character-by-character highlighting.** It uses real word timings when LRCLIB has them (its
   "Lyricsfile" format or enhanced LRC). Otherwise it estimates timing inside each line, splitting Chinese,
   Japanese and Korean text per character and Latin text per word.
+- **Finds lyrics in any language or script.** If the exact lookup misses, it keeps trying:
+  - with Spotify's English names (Spotify shows 李荣浩 or "Ronghao Li" depending on the browser's language);
+  - by title alone, in Simplified and Traditional (Taiwan and Hong Kong forms);
+  - by artist + album.
+
+  The looser searches are accepted only when the song's length matches (±3 s for a title match, ±2 s plus a matching
+  album otherwise). Synced lyrics are preferred, and plain lyrics are shown if that's all LRCLIB has.
 - **Line sync that stays smooth.** It polls Spotify every 2 s and interpolates the position locally every frame.
 - **Tap any line to jump there.** Also play/pause, previous/next, and a seek bar.
 - **Adjustments:** text size, line spacing, timing offset (±0.1 s / ±0.5 s steps), left or centered alignment, karaoke on/off,
@@ -57,6 +64,7 @@ LRCLIB ──(get → search → free-text search)──▶ lyrics ────�
 | `public/js/match.js` | Cleans Spotify titles ("- Remastered 2011", "(feat. X)") and picks the best search result |
 | `public/js/i18n.js` | English / 简体中文 strings |
 | `public/js/t2s.js` | Traditional → Simplified via the vendored opencc-js (`public/vendor/opencc-js/`) |
+| `public/js/s2t.js` | Simplified → Traditional, only for searching LRCLIB (~1 MB, loaded only after a miss) |
 | `public/js/storage.js` | localStorage, or an in-memory fallback if the browser blocks it |
 | `public/js/sun.js` | Day/night from the sun's position (vendored suncalc), for browsers that don't report dark mode |
 | `public/js/app.js` | UI wiring, polling loop, rendering |
@@ -163,7 +171,8 @@ Spotify login locally, register `http://127.0.0.1:5173/` as a redirect URI.
 ## Limitations
 
 - LRCLIB is community-run. Popular songs are well covered, including many Chinese ones, but some songs have no lyrics,
-  or only unsynced ones.
+  or only unsynced ones. The fallback searches only accept a match whose length agrees. Very rarely, a different song
+  on the same album with the same length could still be picked.
 - When a song has no word-level timing, the character fill is an estimate. Use the timing offset if it feels off.
 - Spotify reports the playback position only every couple of seconds, so after a seek the lyrics may take a moment to
   settle.

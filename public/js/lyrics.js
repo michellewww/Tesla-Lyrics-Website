@@ -7,6 +7,8 @@ const CACHE_PREFIX = 'lyrics:v2:';
 const CACHE_INDEX = 'lyrics:v2:index';
 const CACHE_MAX = 80;
 const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+const HAN = /\p{Script=Han}/u;
+const KANA_HANGUL = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 
 /** Traditional → Simplified, for comparing Chinese names. Loaded only when needed. */
 async function loadFold() {
@@ -16,6 +18,18 @@ async function loadFold() {
     return undefined;
   }
 }
+
+/** Simplified → Traditional converters, for searching. ~1 MB, so loaded only after a miss. */
+async function loadTraditional() {
+  try {
+    return (await import('./s2t.js')).traditionalConverters;
+  } catch {
+    return [];
+  }
+}
+
+const unique = (list) => [...new Set(list.filter(Boolean))];
+const timed = (results) => (Array.isArray(results) ? results.filter((r) => r?.duration) : []);
 
 /**
  * Turn an LRCLIB record (or null) into what the UI renders:
@@ -101,35 +115,63 @@ export function createLyricsProvider({
 
   async function lookup(track, alternates) {
     const durationSec = track.durationMs ? Math.round(track.durationMs / 1000) : undefined;
+    const names = [track.name, ...(track.artists || []), track.album || ''].join(' ');
     // Chinese/Japanese/Korean names are where LRCLIB's spelling most often differs from
     // Spotify's: Simplified vs Traditional, or English artist names.
-    const localized = CJK.test([track.name, ...(track.artists || [])].join(' '));
+    const localized = CJK.test(names);
+    const chinese = HAN.test(names) && !KANA_HANGUL.test(names);
     const fold = localized ? await loadFold() : undefined;
 
     const first = await searchByNames(track, durationSec, fold);
     if (first.found) return first.found;
     let fallback = first.fallback;
-    if (!localized) return fallback;
 
     // 4) Spotify shows names in the browser's language (李荣浩 in a Chinese browser,
     //    "Ronghao Li" in an English one), and LRCLIB often has the English ones.
-    const en = alternates ? await Promise.resolve().then(alternates).catch(() => null) : null;
-    if (en?.name && (en.name !== track.name || en.artists?.[0] !== track.artists?.[0])) {
-      const second = await searchByNames(en, durationSec, fold);
-      if (second.found) return second.found;
-      fallback ||= second.fallback;
+    let en = null;
+    if (localized && alternates) {
+      en = await Promise.resolve().then(alternates).catch(() => null);
+      if (en?.name && (en.name !== track.name || en.artists?.[0] !== track.artists?.[0])) {
+        const second = await searchByNames(en, durationSec, fold);
+        if (second.found) return second.found;
+        fallback ||= second.fallback;
+      }
     }
 
-    // 5) Title only, accepted only when the length is within 3 s and the title matches
-    //    (both compared in Simplified, so Traditional LRCLIB titles count too).
-    if (durationSec) {
-      const titles = [...new Set([track.name, en?.name].filter(Boolean).map((t) => cleanTitle(t) || t))];
-      for (const q of titles) {
-        const results = await request('/api/search', { q });
-        const timed = Array.isArray(results) ? results.filter((r) => r?.duration) : [];
-        const best = pickBest(timed, { durationSec, title: q, fold, maxDiff: 3 });
-        if (good(best)) return best;
-        fallback ||= best;
+    // The remaining searches don't know the artist or title for sure, so they rely on the
+    // song's length to confirm a match.
+    if (!durationSec) return fallback || null;
+
+    // Spellings to try: as given, and for Chinese also in Simplified and Traditional
+    // (Taiwan and Hong Kong forms), since LRCLIB's search treats them as different text.
+    // Each "speller" rewrites a string into one script, so related strings stay consistent.
+    const spellers = [(x) => x, fold, ...(chinese ? await loadTraditional() : [])].filter(Boolean);
+    const spellings = (text) => spellers.map((f) => f(text));
+
+    // 5) Title only, in every spelling — accepted when the length is within 3 s and the
+    //    title matches (compared in Simplified).
+    const titles = unique([track.name, en?.name].filter(Boolean).flatMap((t) => spellings(cleanTitle(t) || t)));
+    for (const q of titles) {
+      const best = pickBest(timed(await request('/api/search', { q })), { durationSec, title: q, fold, maxDiff: 3 });
+      if (good(best)) return best;
+      fallback ||= best;
+    }
+
+    // 6) Artist + album, for songs LRCLIB titles differently (another language, an added
+    //    subtitle) — accepted only when the length is within 2 s and the album matches.
+    const albums = unique([track.album, en?.album]);
+    if (albums.length) {
+      // Artist and album in the same script (雲朵 倔強, not 雲朵 倔强).
+      const queries = unique(
+        [track.artists?.[0], en?.artists?.[0]].filter(Boolean).flatMap((a) => spellers.map((f) => `${f(a)} ${f(albums[0])}`)),
+      );
+      for (const q of queries) {
+        const results = timed(await request('/api/search', { q }));
+        for (const album of albums) {
+          const best = pickBest(results, { durationSec, album, fold, maxDiff: 2 });
+          if (good(best)) return best;
+          fallback ||= best;
+        }
       }
     }
     return fallback || null;

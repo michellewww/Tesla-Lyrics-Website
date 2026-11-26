@@ -65,7 +65,7 @@ test('keeps a plain-only exact match if no synced version exists anywhere', asyn
   });
   const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
   assert.equal((await p.get(TRACK)).status, 'plain');
-  assert.equal(fetchFn.calls.length, 3);
+  assert.equal(fetchFn.calls.length, 5); // get, 2 searches, title-only, artist+album
 });
 
 test('results are cached in memory and storage; misses are not persisted', async () => {
@@ -146,11 +146,45 @@ test('title-only fallback rejects matches more than 3 s off', async () => {
   assert.equal((await p.get(CN_TRACK)).status, 'none');
 });
 
-test('Latin-script misses do not ask for English names or search by title alone', async () => {
+test('Latin-script misses skip the English-names retry but still try title-only and artist+album', async () => {
   const fetchFn = fakeFetch((url) => (new URL(url).pathname === '/api/get' ? jsonResponse(404, {}) : jsonResponse(200, [])));
   let asked = 0;
   const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
   await p.get(TRACK, { alternates: async () => (asked++, null) });
   assert.equal(asked, 0);
-  assert.equal(fetchFn.calls.length, 3);
+  const queries = fetchFn.calls.map((c) => new URL(c.url).searchParams.get('q')).filter(Boolean);
+  assert.deepEqual(queries, ['Song Band', 'Song', 'Band Album']);
+});
+
+test('a Chinese song filed only under Traditional spellings is found via a Traditional title search', async () => {
+  const fetchFn = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get') return jsonResponse(404, {});
+    if (u.searchParams.get('q') === '對等關係') {
+      return jsonResponse(200, [{ id: 3, trackName: '對等關係 (feat. 張惠妹)', artistName: '李榮浩', duration: 327, syncedLyrics: '[00:01.00]trad' }]);
+    }
+    return jsonResponse(200, []);
+  });
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
+  const r = await p.get(CN_TRACK);
+  assert.equal(r.status, 'synced');
+  assert.equal(r.lines[0].text, 'trad');
+});
+
+test('a song LRCLIB titles in another language is found by artist + album and exact length', async () => {
+  const track = { id: 'x', name: '对等关系', artists: ['李荣浩'], album: '纵横四海', durationMs: 327_000 };
+  const fetchFn = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get') return jsonResponse(404, {});
+    if (u.searchParams.get('q') === '李荣浩 纵横四海') {
+      return jsonResponse(200, [
+        { id: 4, trackName: 'Other Song', artistName: '李荣浩', albumName: '纵横四海', duration: 250, syncedLyrics: '[00:01.00]wrong' },
+        { id: 5, trackName: 'Equivalence Relation', artistName: '李荣浩', albumName: '纵横四海', duration: 328, syncedLyrics: '[00:01.00]right' },
+      ]);
+    }
+    return jsonResponse(200, []);
+  });
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
+  const r = await p.get(track);
+  assert.equal(r.lines[0].text, 'right');
 });

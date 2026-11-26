@@ -37,11 +37,11 @@ function looselyEqual(a, b, fold) {
  * Choose the best LRCLIB search result.
  * Prefers synced lyrics with a duration close to Spotify's; falls back to plain lyrics.
  * @param {object[]} results LRCLIB records
- * @param {{durationSec?:number, artist?:string, title?:string, fold?:(s:string)=>string, maxDiff?:number}} want
+ * @param {{durationSec?:number, artist?:string, title?:string, album?:string, fold?:(s:string)=>string, maxDiff?:number}} want
  *   fold: applied to both sides before comparing names (e.g. Traditional → Simplified)
  *   maxDiff: tighter duration tolerance in seconds (default 8 for synced, 15 otherwise)
  */
-export function pickBest(results, { durationSec, artist, title, fold, maxDiff } = {}) {
+export function pickBest(results, { durationSec, artist, title, album, fold, maxDiff } = {}) {
   if (!Array.isArray(results)) return null;
   const diff = (r) => (durationSec && r.duration ? Math.abs(r.duration - durationSec) : 0);
   const plausible = results.filter(
@@ -49,7 +49,8 @@ export function pickBest(results, { durationSec, artist, title, fold, maxDiff } 
       r &&
       (r.syncedLyrics || r.plainLyrics || r.instrumental) &&
       (!artist || looselyEqual(r.artistName, artist, fold)) &&
-      (!title || looselyEqual(cleanTitle(r.trackName), cleanTitle(title), fold)),
+      (!title || looselyEqual(cleanTitle(r.trackName), cleanTitle(title), fold)) &&
+      (!album || looselyEqual(r.albumName, album, fold)),
   );
   // Closest duration wins; word-synced records get a small head start.
   const score = (r) => diff(r) - (r.hasWordSync ? 1.5 : 0);

@@ -12,6 +12,7 @@ const out = (p) => resolve(ROOT, 'public/vendor', p);
 const FILES = [
   // opencc-js: Traditional → Simplified Chinese (MIT code, Apache-2.0 dictionary data)
   ['opencc-js/dist/esm/t2cn.js', 'opencc-js/t2cn.js'],
+  ['opencc-js/dist/esm/cn2t.js', 'opencc-js/cn2t.js'], // Simplified → Traditional, for searching
   ['opencc-js/LICENSE', 'opencc-js/LICENSE'],
   ['opencc-js/LICENSES/Apache-2.0.txt', 'opencc-js/LICENSES/Apache-2.0.txt'],
   ['opencc-js/THIRD_PARTY_LICENSES.md', 'opencc-js/THIRD_PARTY_LICENSES.md'],
