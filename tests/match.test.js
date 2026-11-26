@@ -42,3 +42,11 @@ test('pickBest gives word-synced records a small edge', () => {
   ];
   assert.equal(pickBest(results, { durationSec: 200 }).id, 2);
 });
+
+test('pickBest can compare names in Simplified (fold) and use a tighter duration window', async () => {
+  const { toSimplified } = await import('../public/js/t2s.js');
+  const results = [{ id: 1, trackName: '對等關係 (feat. 張惠妹)', artistName: '李榮浩', duration: 327, syncedLyrics: 's' }];
+  assert.equal(pickBest(results, { durationSec: 327, title: '对等关系', artist: '李荣浩' }), null);
+  assert.equal(pickBest(results, { durationSec: 327, title: '对等关系', artist: '李荣浩', fold: toSimplified }).id, 1);
+  assert.equal(pickBest(results, { durationSec: 331, title: '对等关系', fold: toSimplified, maxDiff: 3 }), null);
+});

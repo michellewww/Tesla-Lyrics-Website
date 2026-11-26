@@ -70,19 +70,19 @@ export function normalizePlayback(data, sampledAt) {
 }
 
 export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a), now = () => performance.now() }) {
-  async function api(method, path, { query } = {}, retried = false) {
+  async function api(method, path, { query, headers } = {}, retried = false) {
     const token = await auth.getAccessToken();
     if (!token) throw new AuthRequiredError();
     const qs = query ? `?${new URLSearchParams(query)}` : '';
     const res = await fetchFn(`${API}${path}${qs}`, {
       method,
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { ...headers, Authorization: `Bearer ${token}` },
     });
 
     if (res.status === 401 && !retried) {
       const fresh = await auth.refresh();
       if (!fresh) throw new AuthRequiredError();
-      return api(method, path, { query }, true);
+      return api(method, path, { query, headers }, true);
     }
     if (res.status === 401) throw new AuthRequiredError();
     if (res.status === 429) {
@@ -109,6 +109,17 @@ export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a)
       const t1 = now();
       // progress_ms was measured roughly halfway through the round trip.
       return normalizePlayback(data, (t0 + t1) / 2);
+    },
+    /**
+     * The playing track's names in English. Spotify localises names (notably Chinese,
+     * Japanese and Korean artists) by the browser's language, while LRCLIB often has
+     * the English ones. Returns null if a different track is playing by now.
+     */
+    async englishNames(trackId) {
+      const data = await api('GET', '/me/player/currently-playing', { headers: { 'Accept-Language': 'en' } });
+      const item = data?.item;
+      if (!item || item.type !== 'track' || item.id !== trackId) return null;
+      return { name: item.name, artists: (item.artists || []).map((a) => a.name), album: item.album?.name || '' };
     },
     play: () => api('PUT', '/me/player/play'),
     pause: () => api('PUT', '/me/player/pause'),

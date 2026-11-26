@@ -116,3 +116,13 @@ test('player commands use the right method/path and report Premium errors', asyn
     ['PUT /me/player/seek?position_ms=12346', 'POST /me/player/next', 'POST /me/player/previous', 'PUT /me/player/play', 'PUT /me/player/pause'],
   );
 });
+
+test('englishNames asks Spotify in English and ignores a track that changed meanwhile', async () => {
+  const fetchFn = fakeFetch(() => jsonResponse(200, TRACK_RESPONSE));
+  const sp = createSpotify({ auth: fakeAuth(), fetchFn });
+  const names = await sp.englishNames('t1');
+  assert.equal(fetchFn.calls[0].init.headers['Accept-Language'], 'en');
+  assert.equal(fetchFn.calls[0].init.headers.Authorization, 'Bearer AT');
+  assert.deepEqual(names, { name: 'Song', artists: ['Artist A', 'Artist B'], album: 'Album' });
+  assert.equal(await sp.englishNames('other-track'), null);
+});

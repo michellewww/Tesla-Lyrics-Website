@@ -27,9 +27,9 @@ export function cleanTitle(title) {
     .trim();
 }
 
-function looselyEqual(a, b) {
-  const x = normalize(a);
-  const y = normalize(b);
+function looselyEqual(a, b, fold) {
+  const x = normalize(fold ? fold(String(a || '')) : a);
+  const y = normalize(fold ? fold(String(b || '')) : b);
   return Boolean(x && y && (x.includes(y) || y.includes(x)));
 }
 
@@ -37,24 +37,26 @@ function looselyEqual(a, b) {
  * Choose the best LRCLIB search result.
  * Prefers synced lyrics with a duration close to Spotify's; falls back to plain lyrics.
  * @param {object[]} results LRCLIB records
- * @param {{durationSec?:number, artist?:string, title?:string}} want
+ * @param {{durationSec?:number, artist?:string, title?:string, fold?:(s:string)=>string, maxDiff?:number}} want
+ *   fold: applied to both sides before comparing names (e.g. Traditional → Simplified)
+ *   maxDiff: tighter duration tolerance in seconds (default 8 for synced, 15 otherwise)
  */
-export function pickBest(results, { durationSec, artist, title } = {}) {
+export function pickBest(results, { durationSec, artist, title, fold, maxDiff } = {}) {
   if (!Array.isArray(results)) return null;
   const diff = (r) => (durationSec && r.duration ? Math.abs(r.duration - durationSec) : 0);
   const plausible = results.filter(
     (r) =>
       r &&
       (r.syncedLyrics || r.plainLyrics || r.instrumental) &&
-      (!artist || looselyEqual(r.artistName, artist)) &&
-      (!title || looselyEqual(cleanTitle(r.trackName), cleanTitle(title))),
+      (!artist || looselyEqual(r.artistName, artist, fold)) &&
+      (!title || looselyEqual(cleanTitle(r.trackName), cleanTitle(title), fold)),
   );
   // Closest duration wins; word-synced records get a small head start.
   const score = (r) => diff(r) - (r.hasWordSync ? 1.5 : 0);
   const byDiff = (a, b) => score(a) - score(b);
 
-  const synced = plausible.filter((r) => r.syncedLyrics && diff(r) <= 8).sort(byDiff);
+  const synced = plausible.filter((r) => r.syncedLyrics && diff(r) <= (maxDiff ?? 8)).sort(byDiff);
   if (synced.length) return synced[0];
-  const other = plausible.filter((r) => diff(r) <= 15).sort(byDiff);
+  const other = plausible.filter((r) => diff(r) <= (maxDiff ?? 15)).sort(byDiff);
   return other[0] || null;
 }

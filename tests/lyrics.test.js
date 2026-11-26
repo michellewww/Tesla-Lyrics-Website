@@ -91,3 +91,66 @@ test('server errors propagate so the UI can offer a retry', async () => {
   const p = createLyricsProvider({ fetchFn: fakeFetch(() => jsonResponse(500, {})), storage: memoryStorage() });
   await assert.rejects(p.get(TRACK), /LRCLIB error 500/);
 });
+
+// Spotify localises names by browser language (李荣浩 vs "Ronghao Li"); LRCLIB often only
+// has one spelling, or the Traditional title.
+const CN_TRACK = { id: 'cn1', name: '对等关系 (feat. 张惠妹)', artists: ['李荣浩', '张惠妹'], album: 'Free Soul', durationMs: 327_000 };
+
+test('a Chinese-name miss retries with Spotify\'s English names', async () => {
+  const fetchFn = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get' && u.searchParams.get('artist_name') === 'Ronghao Li') {
+      return jsonResponse(200, { id: 7, trackName: '对等关系', artistName: 'Ronghao Li', duration: 328, syncedLyrics: '[00:01.00]x' });
+    }
+    return u.pathname === '/api/get' ? jsonResponse(404, {}) : jsonResponse(200, []);
+  });
+  let asked = 0;
+  const alternates = async () => {
+    asked++;
+    return { name: '对等关系 (feat. 张惠妹)', artists: ['Ronghao Li', 'A-Mei Chang'], album: 'Free Soul' };
+  };
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
+  const r = await p.get(CN_TRACK, { alternates });
+  assert.equal(r.status, 'synced');
+  assert.equal(asked, 1);
+});
+
+test('title-only fallback accepts a close-length match by another artist spelling, not a different song', async () => {
+  const fetchFn = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get') return jsonResponse(404, {});
+    if (u.searchParams.get('q') === '对等关系') {
+      return jsonResponse(200, [
+        { id: 1, trackName: '对等关系', artistName: 'Hush', duration: 344, syncedLyrics: '[00:01.00]other song' },
+        { id: 2, trackName: '对等关系 - Equivalence Relation (feat. aMEI)', artistName: 'Ronghao Li', duration: 328, syncedLyrics: '[00:01.00]right' },
+      ]);
+    }
+    return jsonResponse(200, []);
+  });
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
+  const r = await p.get(CN_TRACK); // no alternates available (e.g. demo player)
+  assert.equal(r.status, 'synced');
+  assert.equal(r.lines[0].text, 'right');
+});
+
+test('title-only fallback rejects matches more than 3 s off', async () => {
+  const fetchFn = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get') return jsonResponse(404, {});
+    if (u.searchParams.get('q') === '对等关系') {
+      return jsonResponse(200, [{ id: 1, trackName: '对等关系', artistName: 'Someone', duration: 334, syncedLyrics: '[00:01.00]x' }]);
+    }
+    return jsonResponse(200, []);
+  });
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
+  assert.equal((await p.get(CN_TRACK)).status, 'none');
+});
+
+test('Latin-script misses do not ask for English names or search by title alone', async () => {
+  const fetchFn = fakeFetch((url) => (new URL(url).pathname === '/api/get' ? jsonResponse(404, {}) : jsonResponse(200, [])));
+  let asked = 0;
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
+  await p.get(TRACK, { alternates: async () => (asked++, null) });
+  assert.equal(asked, 0);
+  assert.equal(fetchFn.calls.length, 3);
+});

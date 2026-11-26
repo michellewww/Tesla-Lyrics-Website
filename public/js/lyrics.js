@@ -6,6 +6,16 @@ import { cleanTitle, pickBest } from './match.js';
 const CACHE_PREFIX = 'lyrics:v2:';
 const CACHE_INDEX = 'lyrics:v2:index';
 const CACHE_MAX = 80;
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+/** Traditional → Simplified, for comparing Chinese names. Loaded only when needed. */
+async function loadFold() {
+  try {
+    return (await import('./t2s.js')).toSimplified;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Turn an LRCLIB record (or null) into what the UI renders:
@@ -59,33 +69,70 @@ export function createLyricsProvider({
     return res.json();
   }
 
-  async function lookup(track) {
-    const artist = track.artists?.[0] || '';
-    const durationSec = track.durationMs ? Math.round(track.durationMs / 1000) : undefined;
-    const title = cleanTitle(track.name) || track.name;
-    const good = (r) => r && (r.syncedLyrics || r.instrumental);
+  const good = (r) => Boolean(r && (r.syncedLyrics || r.instrumental));
+
+  /** Steps 1–3 for one set of names. Returns a synced/instrumental hit, or the best other match. */
+  async function searchByNames({ name, artists, album }, durationSec, fold) {
+    const artist = artists?.[0] || '';
+    const title = cleanTitle(name) || name;
 
     // 1) Exact signature match — the fastest and most accurate path.
     const exact = await request('/api/get', {
-      track_name: track.name,
+      track_name: name,
       artist_name: artist,
-      album_name: track.album,
+      album_name: album,
       duration: durationSec,
     });
-    if (good(exact)) return exact;
+    if (good(exact)) return { found: exact };
     let fallback = exact; // plain-only match; keep looking for a synced one
 
     // 2) Structured search with the cleaned-up title.
     const structured = await request('/api/search', { track_name: title, artist_name: artist });
     let best = pickBest(structured, { durationSec });
-    if (good(best)) return best;
+    if (good(best)) return { found: best };
     fallback ||= best;
 
     // 3) Free-text search, verified against artist and title.
     const free = await request('/api/search', { q: `${title} ${artist}`.trim() });
-    best = pickBest(free, { durationSec, artist, title });
-    if (good(best)) return best;
-    return fallback || best || null;
+    best = pickBest(free, { durationSec, artist, title, fold });
+    if (good(best)) return { found: best };
+    return { fallback: fallback || best || null };
+  }
+
+  async function lookup(track, alternates) {
+    const durationSec = track.durationMs ? Math.round(track.durationMs / 1000) : undefined;
+    // Chinese/Japanese/Korean names are where LRCLIB's spelling most often differs from
+    // Spotify's: Simplified vs Traditional, or English artist names.
+    const localized = CJK.test([track.name, ...(track.artists || [])].join(' '));
+    const fold = localized ? await loadFold() : undefined;
+
+    const first = await searchByNames(track, durationSec, fold);
+    if (first.found) return first.found;
+    let fallback = first.fallback;
+    if (!localized) return fallback;
+
+    // 4) Spotify shows names in the browser's language (李荣浩 in a Chinese browser,
+    //    "Ronghao Li" in an English one), and LRCLIB often has the English ones.
+    const en = alternates ? await Promise.resolve().then(alternates).catch(() => null) : null;
+    if (en?.name && (en.name !== track.name || en.artists?.[0] !== track.artists?.[0])) {
+      const second = await searchByNames(en, durationSec, fold);
+      if (second.found) return second.found;
+      fallback ||= second.fallback;
+    }
+
+    // 5) Title only, accepted only when the length is within 3 s and the title matches
+    //    (both compared in Simplified, so Traditional LRCLIB titles count too).
+    if (durationSec) {
+      const titles = [...new Set([track.name, en?.name].filter(Boolean).map((t) => cleanTitle(t) || t))];
+      for (const q of titles) {
+        const results = await request('/api/search', { q });
+        const timed = Array.isArray(results) ? results.filter((r) => r?.duration) : [];
+        const best = pickBest(timed, { durationSec, title: q, fold, maxDiff: 3 });
+        if (good(best)) return best;
+        fallback ||= best;
+      }
+    }
+    return fallback || null;
   }
 
   function readCache(id) {
@@ -122,15 +169,19 @@ export function createLyricsProvider({
   }
 
   return {
-    /** @param {{id:string,name:string,artists:string[],album:string,durationMs:number}} track */
-    async get(track) {
+    /**
+     * @param {{id:string,name:string,artists:string[],album:string,durationMs:number}} track
+     * @param {{alternates?: () => Promise<{name:string,artists:string[],album:string}|null>}} [opts]
+     *   alternates: the same track's names in English, asked for only if the first lookup misses
+     */
+    async get(track, { alternates } = {}) {
       if (memory.has(track.id)) return memory.get(track.id);
       const cached = readCache(track.id);
       if (cached?.status) {
         memory.set(track.id, cached);
         return cached;
       }
-      const result = toResult(await lookup(track));
+      const result = toResult(await lookup(track, alternates));
       memory.set(track.id, result);
       // Only persist hits; a miss might be filled in on LRCLIB later.
       if (result.status !== 'none') writeCache(track.id, result);

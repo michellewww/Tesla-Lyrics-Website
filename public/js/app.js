@@ -489,7 +489,10 @@ async function loadLyrics(track) {
   state.lyricsRaw = null;
   setLyrics({ status: 'loading', lines: [] });
   try {
-    const result = await state.lyricsProvider.get(track);
+    const result = await state.lyricsProvider.get(track, {
+      // Spotify localises names by browser language; on a miss, retry with English names.
+      alternates: state.player.englishNames ? () => state.player.englishNames(track.id) : undefined,
+    });
     const shown = await presentLyrics(result, track);
     if (seq !== state.lyricsSeq) return;
     state.lyricsRaw = result;
