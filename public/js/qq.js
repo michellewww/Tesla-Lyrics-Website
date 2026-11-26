@@ -11,7 +11,7 @@ const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hang
 export const BACKING = /伴奏|纯音乐|純音樂|instrumental|karaoke|off ?vocal/i;
 export const NO_LYRICS = /没有填词的纯音乐|暂无歌词|此歌曲为.*纯音乐|纯音乐，请欣赏/;
 // Credit lines QQ Music puts at the top of its lyrics ("词：…", "Composed by：…").
-const CREDIT = new RegExp(
+export const CREDIT = new RegExp(
   '^(?:' +
     [
       '作?词', '作?曲', '编曲', '制作人?', '监制', '混音', '录音', '和声', '和音', '吉他', '贝斯', '鼓', '键盘', '钢琴', '弦乐',
@@ -45,7 +45,7 @@ function decodeEntities(s) {
 }
 
 // Before the first real line, anything shaped like "Label：name" is a credit ("Rap：MC X").
-const LABEL = /^[^:：]{1,16}[:：]\s*\S/;
+export const LABEL = /^[^:：]{1,16}[:：]\s*\S/;
 
 /**
  * A music service's LRC with its "Title - Artist" opener, title line, credit lines and

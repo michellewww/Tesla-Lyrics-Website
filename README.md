@@ -109,7 +109,8 @@ then runs the tests and deploys the `public/` folder (`.github/workflows/deploy.
 - **LRCLIB** for every song. It is asked first for songs with non-Chinese names, and has word-by-word timing for some.
 - **NetEase Cloud Music (网易云音乐)** for songs with Chinese (or Japanese/Korean) names, where LRCLIB often has
   only plain text or nothing. It is asked first for those, through a public relay that needs no setup. LRCLIB is
-  searched at the same time and used when NetEase has no timed lyrics or the relay is slow or down. For other songs
+  searched at the same time and used when NetEase has no timed lyrics or the relay is slow or down — and also when
+  LRCLIB has word-by-word timing for the song and its words match NetEase's (if they differ, NetEase's are shown). For other songs
   NetEase is the fallback when LRCLIB has nothing timed. The relay is run by a third party and could stop working;
   `chineseSourcesFirst` and `neteaseApi` in `public/js/config.js` control this.
 - **QQ Music**, optionally, through a relay of your own (next section).

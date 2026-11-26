@@ -192,8 +192,13 @@ test('NetEase: another artist is refused; an English artist name needs the album
   assert.equal(await ne(neRelay({ list: [neItem({ artist: ['别人'] })] })).find(TRACK, { fold: t2s }), null);
   const english = { ...TRACK, artists: ['JJ Lin'] };
   assert.ok(await ne(neRelay()).find(english));
-  // Album differs: accepted as the top hit only because the lyrics run to the song's end.
-  assert.ok(await ne(neRelay({ list: [neItem({ album: '别的' })] })).find(english));
+  // Album differs: accepted as the top hit only because the lyrics run to the song's end,
+  // and flagged as unsure.
+  assert.equal((await ne(neRelay({ list: [neItem({ album: '别的' })] })).find(english)).unsure, true);
+  assert.equal((await ne(neRelay()).find(english)).unsure, undefined);
+  // Covers: a Latin-named artist for a Chinese-named one, or a title that says so.
+  assert.equal(await ne(neRelay({ list: [neItem({ artist: ['RyaVocal'] })] })).find(TRACK, { fold: t2s }), null);
+  assert.equal(await ne(neRelay({ list: [neItem({ name: 'Gunfire Song (女声版)', album: '别的' })] })).find(english), null);
   const short = '[00:15.82]one\n[01:40.00]two';
   assert.equal(await ne(neRelay({ list: [neItem({ album: '别的' })], lyric: `${short}\n[02:10.00]three` })).find(english), null);
 });
@@ -202,4 +207,60 @@ test('NetEase: lyrics longer than the track, or covering under half of it, are a
   assert.equal(await ne(neRelay({ lyric: '[00:10.00]a\n[04:30.00]b' })).find(TRACK, { fold: t2s }), null);
   assert.equal(await ne(neRelay({ lyric: '[00:10.00]a\n[01:30.00]b' })).find(TRACK, { fold: t2s }), null);
   assert.equal(await ne(neRelay({ lyric: '[00:00.00]纯音乐，请欣赏' })).find(TRACK, { fold: t2s }), null);
+});
+
+// ---------- word-by-word from LRCLIB vs the other source ----------
+const WORDS = '[00:01.00]<00:01.00>憑什麼 <00:02.00>要失望 <00:03.00>藏眼淚到心臟\n[00:05.00]<00:05.00>往事不會說謊 <00:06.50>別跟它為難';
+const fromOther = async () => ({ syncedLyrics: '[00:01.00]凭什么要失望\n[00:03.00]藏眼泪到心脏\n[00:05.00]往事不会说谎 别跟它为难', source: 'netease' });
+const fold2 = (x) => x.replace(/憑/g, '凭').replace(/麼/g, '么').replace(/淚/g, '泪').replace(/臟/g, '脏').replace(/會/g, '会').replace(/說/g, '说').replace(/謊/g, '谎').replace(/別/g, '别').replace(/為/g, '为').replace(/難/g, '难');
+const cnTrack = { id: 'w', name: '修炼爱情', artists: ['林俊杰'], album: '因你而在', durationMs: 244_000 };
+
+test('sameLyrics ignores line breaks, script and translations, and tells songs apart', async () => {
+  const { sameLyrics } = await import('../public/js/lyrics.js');
+  assert.equal(sameLyrics(await fromOther(), { syncedLyrics: WORDS }, fold2), true);
+  assert.equal(sameLyrics(await fromOther(), { plainLyrics: '說感覺 不只嗅覺\n還有味覺 有觸覺聽覺\n到體會 都是誤會' }, fold2), false);
+});
+
+test('for a Chinese song, word-by-word lyrics from LRCLIB are used when they match the other source', async () => {
+  const p = createLyricsProvider({
+    fetchFn: fakeFetch(() => jsonResponse(200, { id: 1, duration: 244, syncedLyrics: WORDS })),
+    storage: memoryStorage(),
+    backupFirst: 'cjk',
+    backup: fromOther,
+  });
+  const r = await p.get(cnTrack);
+  assert.equal(r.wordSynced, true);
+  assert.equal(r.lines[0].text, '憑什麼 要失望 藏眼淚到心臟');
+});
+
+test('word-by-word lyrics with different words, or of another length, lose to the other source', async () => {
+  const wrongSong = '[00:01.00]<00:01.00>說感覺 <00:02.00>不只嗅覺 <00:03.00>還有味覺\n[00:05.00]<00:05.00>到體會 <00:06.00>都是誤會啊';
+  for (const reply of [{ id: 1, duration: 244, syncedLyrics: wrongSong }, { id: 1, duration: 250, syncedLyrics: WORDS }]) {
+    const p = createLyricsProvider({
+      fetchFn: fakeFetch((url) => (new URL(url).pathname === '/api/get' ? jsonResponse(200, reply) : jsonResponse(200, [reply]))),
+      storage: memoryStorage(),
+      backupFirst: 'cjk',
+      backup: fromOther,
+    });
+    assert.equal((await p.get(cnTrack)).lines[0].text, '凭什么要失望');
+  }
+});
+
+test('line-timed lyrics from LRCLIB do not replace the other source for a Chinese song', async () => {
+  const p = createLyricsProvider({
+    fetchFn: fakeFetch(() => jsonResponse(200, { id: 1, duration: 244, syncedLyrics: '[00:01.00]憑什麼要失望 藏眼淚到心臟\n[00:05.00]往事不會說謊 別跟它為難' })),
+    storage: memoryStorage(),
+    backupFirst: 'cjk',
+    backup: fromOther,
+  });
+  assert.equal((await p.get(cnTrack)).lines[0].text, '凭什么要失望');
+});
+
+test('an unsure match from the other source gives way to LRCLIB timed lyrics of the same length', async () => {
+  const unsure = async () => ({ ...(await fromOther()), unsure: true });
+  const lrc = { id: 1, duration: 244, syncedLyrics: '[00:01.00]from lrclib' };
+  const p = createLyricsProvider({ fetchFn: fakeFetch(() => jsonResponse(200, lrc)), storage: memoryStorage(), backupFirst: 'cjk', backup: unsure });
+  assert.equal((await p.get(cnTrack)).lines[0].text, 'from lrclib');
+  const none = createLyricsProvider({ fetchFn: fakeFetch(() => jsonResponse(404, {})), storage: memoryStorage(), backupFirst: 'cjk', backup: unsure });
+  assert.equal((await none.get({ ...cnTrack, id: 'w2' })).lines[0].text, '凭什么要失望');
 });

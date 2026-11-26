@@ -187,7 +187,7 @@ async function boot() {
     storage,
     backup: others.length ? (track, opts) => firstTimed(others, track, opts) : null,
     backupFirst: CONFIG.chineseSourcesFirst ? 'cjk' : false,
-    cacheTag: `${CONFIG.lyricsRelay ? 'q' : ''}${CONFIG.neteaseApi ? 'n' : ''}${CONFIG.chineseSourcesFirst ? '1' : ''}`,
+    cacheTag: `${CONFIG.lyricsRelay ? 'q' : ''}${CONFIG.neteaseApi ? 'n' : ''}${CONFIG.chineseSourcesFirst ? '1' : ''}v3`,
   });
   showScreen('player');
   renderAllText();
@@ -669,11 +669,9 @@ function renderStatus() {
 }
 
 function renderChip() {
-  const s = state.lyrics.status;
-  const key = s === 'synced' ? (state.lyrics.wordSynced ? 'chip.word' : 'chip.line') : s === 'plain' ? 'chip.plain' : null;
-  els.syncChip.hidden = !key;
-  if (key) els.syncChip.textContent = t(key);
-  if (els.simplifiedChip) els.simplifiedChip.hidden = !state.lyrics.simplified;
+  // The labels under the title ("Line-synced", "Shown in Simplified") are no longer shown.
+  els.syncChip.hidden = true;
+  if (els.simplifiedChip) els.simplifiedChip.hidden = true;
 }
 
 function renderPlayState() {

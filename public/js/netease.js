@@ -15,6 +15,9 @@ const MIN_COVERAGE = 0.5;
 // have to end this close to the track's end.
 const TIGHT_TAIL_SEC = 45;
 
+// Covers and re-recordings keep the song's title and words but not its timing.
+const COVER = /原唱|翻唱|cover|女声|男声|童声|钢琴|吉他|口琴|DJ|remix|live|现场|版[)）\]]/i;
+
 const unique = (list) => [...new Set(list.filter(Boolean))];
 
 export function createNeteaseLyrics({ api, fetchFn = (...a) => globalThis.fetch(...a), timeoutMs = 6000 } = {}) {
@@ -56,10 +59,15 @@ export function createNeteaseLyrics({ api, fetchFn = (...a) => globalThis.fetch(
       const queries = unique(versions.map((v) => `${cleanTitle(v.name) || v.name} ${v.artists?.[0] || ''}`.trim())).slice(0, 2);
 
       const artistMatches = (r) => artists.some((a) => sameArtist(r.artistName, a, fold));
-      const comparable = (r) => artists.some((a) => CJK.test(a) === CJK.test(r.artistName));
+      // "Can't be compared" only means Spotify shows a Latin name ("JJ Lin") for an artist
+      // NetEase writes in Chinese (林俊杰). A Latin-named artist there for a Chinese-named
+      // one on Spotify is simply someone else — usually a cover.
+      const comparable = (r) => artists.some((a) => CJK.test(a)) || !CJK.test(r.artistName);
       const albumMatches = (r) => albums.some((a) => sameTitle(r.albumName, a, fold));
       const titleMatches = (r) =>
-        titles.some((t) => sameTitle(r.trackName, t, fold)) && !(BACKING.test(r.trackName) && !BACKING.test(track.name));
+        titles.some((t) => sameTitle(r.trackName, t, fold)) &&
+        !(BACKING.test(r.trackName) && !BACKING.test(track.name)) &&
+        !(COVER.test(r.trackName) && !COVER.test(track.name));
 
       const tried = new Set();
       for (const q of queries) {
@@ -89,7 +97,8 @@ export function createNeteaseLyrics({ api, fetchFn = (...a) => globalThis.fetch(
           if (sure < 2 && end < durationSec - TIGHT_TAIL_SEC) continue;
           // A translation shares the original's timestamps; the LRC parser pairs lines by time.
           const translated = cleanServiceLrc(data?.tlyric, { title: r.trackName });
-          return { syncedLyrics: translated ? `${timed}\n${translated}` : timed, source: 'netease' };
+          // unsure: matched on the title alone, so it could be someone else's recording.
+          return { syncedLyrics: translated ? `${timed}\n${translated}` : timed, source: 'netease', ...(sure < 2 ? { unsure: true } : {}) };
         }
       }
       return null;

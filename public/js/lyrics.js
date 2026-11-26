@@ -3,6 +3,7 @@
 import { parseLrc, parseLyricsfile, parsePlain } from './lrc.js';
 import { cleanTitle, normalize, pickBest } from './match.js';
 import { withDeadline } from './net.js';
+import { CREDIT, LABEL } from './qq.js';
 
 // Bumped whenever matching changes in a way that makes saved results untrustworthy.
 const CACHE_VERSION = 'lyrics:v3:';
@@ -14,6 +15,8 @@ const INCOMPLETE_TTL_MS = 10 * 60 * 1000; // a search cut short by an error is r
 // track (LRCLIB's own exact match uses ±2 s). A version a few seconds longer or shorter
 // usually has a different intro, so every line is off by about that much for the whole song.
 const SAME_LENGTH_SEC = 2;
+// How long word-by-word lyrics from LRCLIB are waited for once another source has answered.
+const WORD_TIMING_WAIT_MS = 4000;
 const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const HAN = /\p{Script=Han}/u;
 const KANA_HANGUL = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
@@ -44,22 +47,53 @@ function closer(a, b, durationSec) {
   return Math.abs(b.duration - durationSec) < Math.abs(a.duration - durationSec) ? b : a;
 }
 
-/** The distinct lines of a record's lyrics, without timestamps, in a comparable form. */
-function lyricLines(record, fold) {
+/** A record's lyrics as one run of comparable characters: no timestamps, spaces or punctuation. */
+function lyricText(record, fold) {
   const text = String(record?.plainLyrics || record?.syncedLyrics || '').replace(/[[<]\d+:\d+(?:[.:]\d+)?[\]>]/g, '');
-  return new Set(text.split('\n').map((l) => normalize(fold ? fold(l) : l)).filter((l) => l.length > 1));
+  return normalize(fold ? fold(text) : text).replace(/\s+/g, '');
 }
 
-/** Whether two records hold the words of the same song (at least half their lines shared). */
+const GRAM = 5;
+function grams(text) {
+  const set = new Set();
+  for (let i = 0; i + GRAM <= text.length; i++) set.add(text.slice(i, i + GRAM));
+  return set;
+}
+
+/**
+ * Whether two records hold the words of the same song: at least half of the shorter one's
+ * 5-character runs appear in the other. Line breaks, punctuation and added translations
+ * don't matter, so differently laid-out copies of the same lyrics still match.
+ */
 export function sameLyrics(a, b, fold) {
-  const x = lyricLines(a, fold);
-  const y = lyricLines(b, fold);
+  const x = grams(lyricText(a, fold));
+  const y = grams(lyricText(b, fold));
   if (!x.size || !y.size) return false;
+  const [small, large] = x.size <= y.size ? [x, y] : [y, x];
   let shared = 0;
-  for (const line of x) if (y.has(line)) shared++;
-  return shared / Math.min(x.size, y.size) >= 0.5;
+  for (const g of small) if (large.has(g)) shared++;
+  return shared / small.size >= 0.5;
 }
 const timed = (results) => (Array.isArray(results) ? results.filter((r) => r?.duration) : []);
+
+/**
+ * Timed lines without the heading some lyric files start with: "Artist - Title" and
+ * credits such as "词：…" or "Composed by: …". Only lines above the first real lyric line
+ * are looked at (plus credit lines anywhere), so sung lines are never removed.
+ */
+export function dropCredits(lines) {
+  let header = true;
+  const kept = lines.filter((l) => {
+    const text = (l.text || '').trim();
+    if (!text) return true;
+    if (CREDIT.test(text)) return false;
+    if (!header) return true;
+    if (LABEL.test(text) || (l.time < 5000 && /\s[-–—]\s/.test(text))) return false;
+    header = false;
+    return true;
+  });
+  return kept.some((l) => l.text) ? kept : lines;
+}
 
 /**
  * Turn an LRCLIB record (or null) into what the UI renders:
@@ -71,7 +105,7 @@ export function toResult(record) {
 
   if (record.hasWordSync && record.lyricsfile) {
     try {
-      const lines = parseLyricsfile(record.lyricsfile);
+      const lines = dropCredits(parseLyricsfile(record.lyricsfile));
       if (lines.some((l) => l.text)) {
         return {
           status: 'synced',
@@ -85,7 +119,7 @@ export function toResult(record) {
     }
   }
   if (record.syncedLyrics) {
-    const lines = parseLrc(record.syncedLyrics);
+    const lines = dropCredits(parseLrc(record.syncedLyrics));
     if (lines.some((l) => l.text)) {
       return { status: 'synced', lines, wordSynced: lines.some((l) => (l.words?.length ?? 0) > 1) };
     }
@@ -336,8 +370,22 @@ export function createLyricsProvider({
       const rest = viaLrclib();
       rest.catch(() => {}); // only reported if it ends up being the answer
       const other = await askBackup();
-      if (good(other)) return hit(other);
-      return rest;
+      if (!good(other)) return rest;
+      const sameLength = (r) => Boolean(r?.duration && durationSec && Math.abs(r.duration - durationSec) <= SAME_LENGTH_SEC);
+      // Matched on the title alone (it may be another recording of the song): LRCLIB's
+      // timed lyrics for a track of this exact length are the safer choice when it has them.
+      if (other.unsure) {
+        const found = await rest.catch(() => null);
+        if (found?.record !== other && good(found?.record) && sameLength(found.record)) return found;
+        return hit(other);
+      }
+      // LRCLIB's copy is preferred when it times every word — but only if it is the same
+      // length and has the same words as the other source's, which is the one trusted to
+      // be the right song. It gets a few seconds to turn up.
+      const fromLrclib = await Promise.race([rest.catch(() => null), new Promise((r) => setTimeout(r, WORD_TIMING_WAIT_MS, null))]);
+      const record = fromLrclib?.record;
+      if (record && record !== other && sameLength(record) && toResult(record).wordSynced && sameLyrics(other, record, fold)) return fromLrclib;
+      return hit(other);
     }
     return viaLrclib();
   }
