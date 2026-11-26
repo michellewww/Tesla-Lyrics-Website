@@ -15,11 +15,16 @@ const FILES = [
   ['opencc-js/LICENSE', 'opencc-js/LICENSE'],
   ['opencc-js/LICENSES/Apache-2.0.txt', 'opencc-js/LICENSES/Apache-2.0.txt'],
   ['opencc-js/THIRD_PARTY_LICENSES.md', 'opencc-js/THIRD_PARTY_LICENSES.md'],
+  // suncalc: sun position, for switching light/dark at sunrise/sunset (BSD-2-Clause)
+  ['suncalc/index.js', 'suncalc/suncalc.js'],
+  ['suncalc/LICENSE', 'suncalc/LICENSE'],
 ];
 
 for (const [from, to] of FILES) {
   await mkdir(dirname(out(to)), { recursive: true });
   await copyFile(pkg(from), out(to));
 }
-const { version } = JSON.parse(await readFile(pkg('opencc-js/package.json'), 'utf8'));
-console.log(`Vendored opencc-js ${version} → public/vendor/opencc-js/`);
+for (const name of ['opencc-js', 'suncalc']) {
+  const { version } = JSON.parse(await readFile(pkg(`${name}/package.json`), 'utf8'));
+  console.log(`Vendored ${name} ${version} → public/vendor/${name}/`);
+}

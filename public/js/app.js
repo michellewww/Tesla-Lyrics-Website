@@ -92,6 +92,12 @@ const state = {
 let theme;
 let t2s = null; // lazily loaded Traditional → Simplified converter (js/t2s.js)
 let t2sLoading = null;
+// Full layout once the window is clearly wide (e.g. the car browser in full screen,
+// ~16:10); anything narrower (the browser beside Tesla's driving view, phones) is compact.
+// (Declared up here: boot() below runs before the rest of the module is evaluated.)
+const WIDE_WINDOW = '(min-aspect-ratio: 29/20) and (min-width: 1000px)';
+let wideWindow = null;
+let toastTimer = 0;
 
 // ---------- boot ----------
 
@@ -182,7 +188,19 @@ function showLogin(message) {
 
 // ---------- settings ----------
 
+function applyLayout() {
+  if (!wideWindow && globalThis.matchMedia) {
+    wideWindow = matchMedia(WIDE_WINDOW);
+    wideWindow.addEventListener?.('change', applyLayout);
+  }
+  const layout = settings.layout === 'auto' ? (wideWindow?.matches ? 'full' : 'compact') : settings.layout;
+  if (root.dataset.layout === layout) return;
+  root.dataset.layout = layout;
+  requestAnimationFrame(() => scrollToActive(false));
+}
+
 function applySettings() {
+  applyLayout();
   root.style.setProperty('--font-scale', String(settings.fontScale));
   root.style.setProperty('--line-gap', String(settings.lineGap));
   root.dataset.align = settings.align;
@@ -778,7 +796,6 @@ function skip(dir) {
   control(() => (dir > 0 ? state.player.next() : state.player.previous()), null, 400);
 }
 
-let toastTimer = 0;
 function toast(message) {
   els.toast.textContent = message;
   els.toast.hidden = false;
@@ -900,7 +917,7 @@ function bindUi() {
   $('change-client').addEventListener('click', changeClient);
 
   // Login + setup.
-  $('login').addEventListener('click', () => state.auth?.login());
+  $('login').addEventListener('click', () => state.auth?.login().catch((e) => showLogin(authMessage(e))));
   $('copy-redirect').addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText($('redirect-uri').textContent);
@@ -932,6 +949,7 @@ function bindUi() {
     if (els.player.hidden || els.menu.open || e.target.closest('input, textarea')) return;
     const onSlider = e.target.closest('[role="slider"]');
     if (e.key === ' ') {
+      if (e.target.closest('button, [role="slider"]')) return; // the focused control handles Space
       e.preventDefault();
       togglePlay();
     } else if (e.key === 'ArrowRight' && !onSlider) skip(1);

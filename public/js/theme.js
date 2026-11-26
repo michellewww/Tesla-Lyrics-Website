@@ -1,14 +1,16 @@
-// Light/dark theme. "auto" (the default) follows the system setting via
-// prefers-color-scheme and switches live when it changes. Light/Dark can be forced
-// from the menu — useful on browsers (like some car browsers) that don't report it.
-// index.html applies the theme inline before first paint to avoid a flash.
+// Light/dark theme. "auto" (the default) follows the device's light/dark setting via
+// prefers-color-scheme and switches live when it changes. Where the browser can't report
+// that setting (Tesla's browser), "auto" follows the sun instead: light after local
+// sunrise, dark after sunset (see sun.js). Light/Dark can also be forced.
+// index.html applies a first guess inline before first paint to avoid a flash.
+import { createSunClock, systemThemeKnown } from './sun.js';
 
 const KEY = 'settings:theme';
 export const THEME_PREFS = ['auto', 'light', 'dark'];
 
-export function resolveTheme(pref, systemPrefersLight) {
+export function resolveTheme(pref, autoIsLight) {
   if (pref === 'light' || pref === 'dark') return pref;
-  return systemPrefersLight ? 'light' : 'dark';
+  return autoIsLight ? 'light' : 'dark';
 }
 
 export function getThemePref(storage = globalThis.localStorage) {
@@ -21,17 +23,35 @@ export function getThemePref(storage = globalThis.localStorage) {
 }
 
 /**
- * Start applying the theme to <html data-theme>. Calls onChange(theme) whenever the
- * resolved theme changes. Returns a setter for the user's preference.
+ * Start applying the theme to <html data-theme>. Calls onChange(theme, pref) whenever
+ * it is (re)applied. Returns an object to read and change the user's preference.
  */
-export function initTheme({ onChange = () => {}, root = document.documentElement, storage = globalThis.localStorage } = {}) {
-  const mql = globalThis.matchMedia?.('(prefers-color-scheme: light)');
+export function initTheme({
+  onChange = () => {},
+  root = document.documentElement,
+  storage = globalThis.localStorage,
+  matchMedia = globalThis.matchMedia,
+  userAgent = globalThis.navigator?.userAgent || '',
+  sunClock,
+} = {}) {
+  const mql = matchMedia?.('(prefers-color-scheme: light)');
+  const systemKnown = systemThemeKnown({ matchMedia, userAgent });
+  const sun = systemKnown ? null : sunClock || createSunClock({ storage, onChange: () => apply() });
   let pref = getThemePref(storage);
 
+  /** What "auto" picks right now: the device setting, or the sun where that's unknown. */
+  const autoTheme = () => (sun ? (sun.isDay() ? 'light' : 'dark') : mql?.matches ? 'light' : 'dark');
+
   function apply() {
-    const theme = resolveTheme(pref, Boolean(mql?.matches));
+    const theme = resolveTheme(pref, autoTheme() === 'light');
     if (root.dataset.theme !== theme) root.dataset.theme = theme;
     root.dataset.themePref = pref;
+    root.dataset.themeSource = sun ? 'sun' : 'system';
+    // Only watch the sun (and ask for the location) while it actually decides the theme.
+    if (sun) {
+      if (pref === 'auto') sun.start();
+      else sun.stop();
+    }
     onChange(theme, pref);
   }
 
@@ -45,11 +65,15 @@ export function initTheme({ onChange = () => {}, root = document.documentElement
     get theme() {
       return root.dataset.theme;
     },
+    /** 'system' or 'sun': what "auto" follows in this browser. */
+    get source() {
+      return sun ? 'sun' : 'system';
+    },
     /** What "auto" would pick right now. */
     get system() {
-      return mql?.matches ? 'light' : 'dark';
+      return autoTheme();
     },
-    /** Flip light ↔ dark. Landing on the system's own choice goes back to "auto". */
+    /** Flip light ↔ dark. Landing on what "auto" would pick goes back to "auto". */
     toggle() {
       const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
       this.set(next === this.system ? 'auto' : next);

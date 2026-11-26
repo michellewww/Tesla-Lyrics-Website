@@ -1,9 +1,10 @@
 // Run by the deploy workflow on the files about to be published (not on the repo):
 //   node scripts/stamp-version.mjs <dir> <version>
 // Adds ?v=<version> to every local script/stylesheet URL and module import, so each
-// deploy is a fresh, self-consistent set of files. GitHub Pages lets browsers cache
-// files for 10 minutes; without this a browser could combine a cached old file with a
-// new one and break the app.
+// deploy gets its own cache entries. GitHub Pages lets browsers cache files for 10
+// minutes; this makes it much less likely that a cached old file is combined with a new
+// one. It is not a guarantee: Pages ignores the query, so a stale page asking for an
+// old ?v= that isn't cached (e.g. a lazily loaded module) still gets the newest file.
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 

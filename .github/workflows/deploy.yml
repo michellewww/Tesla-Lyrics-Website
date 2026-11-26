@@ -39,8 +39,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      # Give every deploy its own file URLs so browsers never mix cached old files
-      # with new ones (GitHub Pages lets them cache for 10 minutes).
+      # Give every deploy its own file URLs so browsers are much less likely to mix
+      # cached old files with new ones (GitHub Pages lets them cache for 10 minutes).
       - name: Stamp asset URLs with the commit
         run: node scripts/stamp-version.mjs public "${GITHUB_SHA::12}"
       - uses: actions/configure-pages@v6

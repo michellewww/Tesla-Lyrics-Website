@@ -13,6 +13,7 @@ export const DEFAULTS = Object.freeze({
   simplified: true, // show Traditional Chinese as Simplified (opencc-js)
   highlight: 'default', // 'default' | 'cover' | 'green' | 'gold' | 'pink'
   background: 'blur', // 'blur' | 'color'
+  layout: 'auto', // 'auto' | 'compact' (beside Tesla's driving view) | 'full' (full screen)
   lang: 'auto', // 'auto' | 'en' | 'zh-CN'
 });
 
@@ -20,6 +21,7 @@ const CHOICES = {
   align: ['left', 'center'],
   highlight: ['default', 'cover', 'green', 'gold', 'pink'],
   background: ['blur', 'color'],
+  layout: ['auto', 'compact', 'full'],
   lang: ['auto', 'en', 'zh-CN'],
 };
 

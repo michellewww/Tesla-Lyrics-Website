@@ -14,12 +14,18 @@ no server and no client secret.
   Japanese and Korean text per character and Latin text per word.
 - **Line sync that stays smooth.** It polls Spotify every 2 s and interpolates the position locally every frame.
 - **Tap any line to jump there.** Also play/pause, previous/next, and a seek bar.
-- **Adjustments:** text size, timing offset (±0.1 s / ±0.5 s steps), left or centered alignment, karaoke on/off,
+- **Adjustments:** text size, line spacing, timing offset (±0.1 s / ±0.5 s steps), left or centered alignment, karaoke on/off,
   show translations, highlight colour (default, album colour, green, gold, pink), background (blurred cover or
   album colour), full screen.
-- **Light/dark mode follows the system automatically.** A ☀️/🌙 button in the toolbar flips it (flipping back to
-  what the system uses returns to Auto), and Settings has Auto / Light / Dark. The car's browser may not report
-  day/night mode, so the button is the quick fix.
+- **Light/dark mode switches automatically.** Auto follows the device's light/dark setting. In browsers that don't
+  share it (Tesla's), it switches at local sunrise and sunset instead, using [suncalc](https://github.com/mourner/suncalc)
+  and your location. The location is asked for once, rounded to about 10 km, and kept on the device. Without it, light
+  runs 07:00–19:00. A ☀️/🌙 button flips the theme by hand (flipping back to what Auto would pick returns to Auto), and
+  Settings has Auto / Light / Dark.
+- **Two layouts.** *Compact* is for the Tesla browser next to the driving view, where Tesla's own media card already
+  shows the cover and play/skip. It drops those, gives the lyrics the full width, and puts the adjustment buttons in a
+  bar at the bottom, nearest your hand. *Full* adds the big cover and playback buttons, for when the browser is full
+  screen. Auto picks Full for wide windows and Compact otherwise; Settings → Layout overrides it.
 - **English and Simplified Chinese UI.** It picks the language from the browser, and you can change it in Settings.
   Chinese lyrics get proper CJK fonts and `lang` tags, and bilingual LRC files show the translation under each line.
 - **Traditional → Simplified Chinese.** Traditional lyrics and song titles are shown in Simplified characters by
@@ -52,6 +58,7 @@ LRCLIB ──(get → search → free-text search)──▶ lyrics ────�
 | `public/js/i18n.js` | English / 简体中文 strings |
 | `public/js/t2s.js` | Traditional → Simplified via the vendored opencc-js (`public/vendor/opencc-js/`) |
 | `public/js/storage.js` | localStorage, or an in-memory fallback if the browser blocks it |
+| `public/js/sun.js` | Day/night from the sun's position (vendored suncalc), for browsers that don't report dark mode |
 | `public/js/app.js` | UI wiring, polling loop, rendering |
 
 Lyrics come from [LRCLIB](https://lrclib.net), a free, open, CORS-enabled lyrics database that needs no API key.
@@ -106,6 +113,9 @@ Spotify is stored "on the website".
   own Spotify account. In Development Mode, Spotify only lets accounts you've added under **User Management** log in.
 - **The Client ID is not a secret.** It identifies the app, not you, and it can't be used to reach your account without
   your own Spotify login.
+- **Your location never leaves the device.** In browsers that can't report dark mode (like Tesla's), Auto asks for
+  your location once to work out sunrise and sunset. It is rounded to about 10 km, stored in `localStorage`, and used
+  only for that calculation in the browser. If you decline, it isn't asked again for a month.
 - **LRCLIB sees the song name.** To find lyrics, the browser sends the track title, artist, album and duration to
   lrclib.net. Nothing else is sent, and nothing identifies you.
 - **Anyone using that device is logged in as you.** The login is remembered in that browser (for example the car).
@@ -130,6 +140,8 @@ The app is built for the car's Chromium-based browser:
 - **Full screen:** Tesla's browser generally doesn't support the Fullscreen API, so that setting only appears where
   it works. Owners use a community workaround: open `youtube.com/redirect?q=<site URL>` and confirm. Tesla doesn't
   support it and has broken it in some updates.
+- **Dark mode:** Tesla's browser answers the dark-mode query but doesn't follow the car's day/night display, so it
+  is detected by its user agent (`Tesla/…`) and Auto switches at sunrise and sunset instead.
 - **Restrictions you can't control:** Parental Controls can disable the browser, and whether it can be used while
   driving depends on your software version and region.
 
@@ -160,5 +172,6 @@ Spotify login locally, register `http://127.0.0.1:5173/` as a redirect URI.
 
 - [opencc-js](https://github.com/nk2028/opencc-js) 1.4.2: MIT License (code) and Apache License 2.0 (OpenCC dictionary
   data). The license texts are in `public/vendor/opencc-js/`.
+- [suncalc](https://github.com/mourner/suncalc) 2.1.4: BSD 2-Clause License, in `public/vendor/suncalc/LICENSE`.
 
 Not affiliated with Tesla, Spotify or LRCLIB.
