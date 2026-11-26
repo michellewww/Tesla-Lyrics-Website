@@ -134,3 +134,72 @@ test('the relay only passes on well-formed requests and allows the page to read 
     globalThis.fetch = real;
   }
 });
+
+test('with backupFirst, timed lyrics from the other source win over LRCLIB', async () => {
+  const fetchFn = fakeFetch(() => jsonResponse(200, { id: 1, syncedLyrics: '[00:01.00]from lrclib' }));
+  const p = createLyricsProvider({
+    fetchFn,
+    storage: memoryStorage(),
+    backupFirst: true,
+    backup: async () => ({ syncedLyrics: '[00:01.00]from qq', duration: 244, source: 'qq' }),
+  });
+  assert.equal((await p.get(TRACK)).lines[0].text, 'from qq');
+});
+
+test('with backupFirst, LRCLIB is used when the other source has nothing timed or is down', async () => {
+  for (const backup of [async () => null, async () => ({ plainLyrics: 'plain', duration: 244 }), async () => Promise.reject(new Error('down'))]) {
+    const p = createLyricsProvider({
+      fetchFn: fakeFetch(() => jsonResponse(200, { id: 1, syncedLyrics: '[00:01.00]from lrclib' })),
+      storage: memoryStorage(),
+      backupFirst: true,
+      backup,
+    });
+    assert.equal((await p.get(TRACK)).lines[0].text, 'from lrclib');
+  }
+});
+
+// ---------- NetEase through the public relay ----------
+import { createNeteaseLyrics } from '../public/js/netease.js';
+
+const NE_LRC = [
+  '[00:00.00] 作词 : 林俊杰',
+  '[00:00.41] GUNFIRE SONG',
+  '[00:01.00]Gunfire Song - 林俊杰 (JJ Lin)',
+  '[00:09.46]Rap：MC VADER',
+  '[00:11.46]',
+  '[02:55.89][00:15.82]Gunfire song',
+  '[03:40.00][00:19.72]Where the weak lies',
+].join('\n');
+const neItem = (over = {}) => ({ id: 108440, name: 'Gunfire Song', artist: ['林俊杰'], album: '100天', lyric_id: 108440, ...over });
+function neRelay({ list = [neItem()], lyric = NE_LRC, tlyric = '' } = {}) {
+  return fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.searchParams.get('types') === 'search') return jsonResponse(200, list);
+    return jsonResponse(200, { lyric, tlyric });
+  });
+}
+const ne = (fetchFn) => createNeteaseLyrics({ api: 'https://relay.test/api.php', fetchFn });
+
+test('NetEase lyrics drop the credits and title heading but keep a first line that is the title', async () => {
+  const r = await ne(neRelay({ tlyric: '[by:x]\n[00:15.82]枪火之歌' })).find(TRACK, { fold: t2s });
+  assert.equal(r.syncedLyrics.split('\n')[0], '[00:11.46]');
+  assert.ok(r.syncedLyrics.includes('[02:55.89][00:15.82]Gunfire song'));
+  assert.ok(!/作词|GUNFIRE SONG|Rap|JJ Lin/.test(r.syncedLyrics));
+  assert.ok(r.syncedLyrics.endsWith('[00:15.82]枪火之歌'));
+});
+
+test('NetEase: another artist is refused; an English artist name needs the album or a top hit that fits', async () => {
+  assert.equal(await ne(neRelay({ list: [neItem({ artist: ['别人'] })] })).find(TRACK, { fold: t2s }), null);
+  const english = { ...TRACK, artists: ['JJ Lin'] };
+  assert.ok(await ne(neRelay()).find(english));
+  // Album differs: accepted as the top hit only because the lyrics run to the song's end.
+  assert.ok(await ne(neRelay({ list: [neItem({ album: '别的' })] })).find(english));
+  const short = '[00:15.82]one\n[01:40.00]two';
+  assert.equal(await ne(neRelay({ list: [neItem({ album: '别的' })], lyric: `${short}\n[02:10.00]three` })).find(english), null);
+});
+
+test('NetEase: lyrics longer than the track, or covering under half of it, are another version', async () => {
+  assert.equal(await ne(neRelay({ lyric: '[00:10.00]a\n[04:30.00]b' })).find(TRACK, { fold: t2s }), null);
+  assert.equal(await ne(neRelay({ lyric: '[00:10.00]a\n[01:30.00]b' })).find(TRACK, { fold: t2s }), null);
+  assert.equal(await ne(neRelay({ lyric: '[00:00.00]纯音乐，请欣赏' })).find(TRACK, { fold: t2s }), null);
+});

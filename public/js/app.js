@@ -3,6 +3,7 @@ import { AuthError, createAuth, redirectUriFor } from './auth.js';
 import { ApiError, AuthRequiredError, RateLimitError, createSpotify } from './spotify.js';
 import { createLyricsProvider } from './lyrics.js';
 import { createQQLyrics } from './qq.js';
+import { createNeteaseLyrics } from './netease.js';
 import { PlaybackSync } from './sync.js';
 import { findActiveIndex, withIntro } from './lrc.js';
 import { guessLang, lineSegments, segmentProgress } from './karaoke.js';
@@ -175,12 +176,18 @@ async function boot() {
   }
 
   state.player = createSpotify({ auth: state.auth });
-  const qq = CONFIG.lyricsRelay ? createQQLyrics({ relay: CONFIG.lyricsRelay }) : null;
+  // Other lyric sources, in order: QQ Music (your own relay, if set), then NetEase.
+  const others = [
+    CONFIG.lyricsRelay && createQQLyrics({ relay: CONFIG.lyricsRelay }),
+    CONFIG.neteaseApi && createNeteaseLyrics({ api: CONFIG.neteaseApi }),
+  ].filter(Boolean);
   state.lyricsProvider = createLyricsProvider({
     base: CONFIG.lrclibBase,
     client: CONFIG.lrclibClient,
     storage,
-    backup: qq ? (track, opts) => qq.find(track, opts) : null,
+    backup: others.length ? (track, opts) => firstTimed(others, track, opts) : null,
+    backupFirst: CONFIG.chineseSourcesFirst ? 'cjk' : false,
+    cacheTag: `${CONFIG.lyricsRelay ? 'q' : ''}${CONFIG.neteaseApi ? 'n' : ''}${CONFIG.chineseSourcesFirst ? '1' : ''}`,
   });
   showScreen('player');
   renderAllText();
@@ -787,6 +794,23 @@ function resumeFollow() {
   state.followPausedUntil = 0;
   els.recenter.hidden = true;
   scrollToActive(true);
+}
+
+/** The first source with timed lyrics; else any plain lyrics found. One failing doesn't stop the rest. */
+async function firstTimed(sources, track, opts) {
+  let plain = null;
+  let failure = null;
+  for (const source of sources) {
+    try {
+      const record = await source.find(track, opts);
+      if (record?.syncedLyrics) return record;
+      plain ||= record;
+    } catch (e) {
+      failure = e;
+    }
+  }
+  if (!plain && failure) throw failure;
+  return plain;
 }
 
 // ---------- controls ----------

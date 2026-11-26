@@ -62,6 +62,7 @@ LRCLIB ──(get → search → free-text search)──▶ lyrics ────�
 | `public/js/sync.js` | Decides which of Spotify's late, noisy position reports to follow (no jumping back) |
 | `public/js/lyrics.js` | LRCLIB lookup with fallbacks, picks Lyricsfile → LRC → plain, caches in localStorage |
 | `public/js/qq.js` | Optional backup: timed lyrics from QQ Music through the relay, with credit lines removed |
+| `public/js/netease.js` | Timed lyrics from NetEase Cloud Music through a public relay; asked first for Chinese songs |
 | `relay/qq-lyrics-worker.js` | The relay (a Cloudflare Worker) that passes lyric requests on to QQ Music; not part of the site |
 | `public/js/lrc.js` | LRC parser (multi-timestamp, `[offset]`, enhanced word tags, translations), Lyricsfile parser |
 | `public/js/yaml.js` | Tiny YAML-subset parser for LRCLIB's Lyricsfile |
@@ -104,6 +105,16 @@ Pick one:
 In the repo go to **Settings → Pages → Build and deployment → Source** and choose **GitHub Actions**. Every push to `main`
 then runs the tests and deploys the `public/` folder (`.github/workflows/deploy.yml`).
 
+### Where lyrics come from
+
+- **LRCLIB** for every song. It is asked first for songs with non-Chinese names, and has word-by-word timing for some.
+- **NetEase Cloud Music (网易云音乐)** for songs with Chinese (or Japanese/Korean) names, where LRCLIB often has
+  only plain text or nothing. It is asked first for those, through a public relay that needs no setup. LRCLIB is
+  searched at the same time and used when NetEase has no timed lyrics or the relay is slow or down. For other songs
+  NetEase is the fallback when LRCLIB has nothing timed. The relay is run by a third party and could stop working;
+  `chineseSourcesFirst` and `neteaseApi` in `public/js/config.js` control this.
+- **QQ Music**, optionally, through a relay of your own (next section).
+
 ### 4. QQ Music backup (optional)
 
 LRCLIB has no timed lyrics for some songs, mostly Chinese ones. QQ Music usually does, but its servers don't let a web
@@ -117,8 +128,8 @@ plan (100,000 requests a day; no card needed).
 4. Copy the Worker's address (like `https://qq-lyrics.yourname.workers.dev`) into `lyricsRelay` in
    [`public/js/config.js`](public/js/config.js), then commit and push.
 
-To check the relay, open `<its address>/search?q=林俊杰` in a browser: it should show a page of JSON. QQ Music is asked
-only when LRCLIB has no timed lyrics for a song; a match needs the same title, the same artist (or album, when the
+To check the relay, open `<its address>/search?q=林俊杰` in a browser: it should show a page of JSON. With a relay set, QQ Music is
+asked before NetEase for Chinese songs. A QQ Music match needs the same title, the same artist (or album, when the
 artist's name is in another language) and a length within 3 seconds. These QQ Music addresses are unofficial, so they
 may stop working without notice — the app then simply shows what LRCLIB has.
 
@@ -149,7 +160,10 @@ Spotify is stored "on the website".
   only for that calculation in the browser. If you decline, it isn't asked again for a month.
 - **LRCLIB sees the song name.** To find lyrics, the browser sends the track title, artist, album and duration to
   lrclib.net. Nothing else is sent, and nothing identifies you.
-- **With the QQ Music backup on,** the title and artist of songs LRCLIB has no timed lyrics for are also sent to your
+- **For Chinese songs, a third party sees the song name.** Their title and artist are sent to a public relay
+  (`music-api.gdstudio.xyz`, run by GD Studio, not by NetEase or this project) to fetch lyrics from NetEase Cloud
+  Music. Nothing identifies you. Set `neteaseApi` to `''` in `config.js` to turn this off.
+- **With the QQ Music relay set,** the title and artist of each song are also sent to your
   relay on Cloudflare and from there to QQ Music. Nothing identifies you, and the relay stores nothing.
 - **Anyone using that device is logged in as you.** The login is remembered in that browser (for example the car).
   Use ⚙️ → **Log out of Spotify** to remove it.

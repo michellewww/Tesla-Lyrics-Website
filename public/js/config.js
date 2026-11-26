@@ -31,6 +31,16 @@ export const CONFIG = {
   // 'https://qq-lyrics.yourname.workers.dev'. Leave empty to use LRCLIB only.
   lyricsRelay: '',
 
+  // Timed lyrics from NetEase Cloud Music (网易云音乐), for Chinese songs. NetEase can't be
+  // asked from a web page either; this is a public relay run by a third party (GD Studio),
+  // so it needs no setup but may be slow or disappear. Empty turns it off.
+  neteaseApi: 'https://music-api.gdstudio.xyz/api.php',
+
+  // For songs with Chinese (or Japanese/Korean) names, ask QQ Music / NetEase first and
+  // LRCLIB only when they have no timed lyrics. Other songs always ask LRCLIB first.
+  // false: always LRCLIB first.
+  chineseSourcesFirst: true,
+
   lrclibBase: 'https://lrclib.net',
   // LRCLIB asks clients to identify themselves. Browsers can't set User-Agent, so
   // this goes in the Lrclib-Client header. Feel free to add your site's URL.
