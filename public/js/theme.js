@@ -24,9 +24,9 @@ export function getThemePref(storage = globalThis.localStorage) {
  * Start applying the theme to <html data-theme>. Calls onChange(theme) whenever the
  * resolved theme changes. Returns a setter for the user's preference.
  */
-export function initTheme({ onChange = () => {}, root = document.documentElement } = {}) {
+export function initTheme({ onChange = () => {}, root = document.documentElement, storage = globalThis.localStorage } = {}) {
   const mql = globalThis.matchMedia?.('(prefers-color-scheme: light)');
-  let pref = getThemePref();
+  let pref = getThemePref(storage);
 
   function apply() {
     const theme = resolveTheme(pref, Boolean(mql?.matches));
@@ -45,10 +45,19 @@ export function initTheme({ onChange = () => {}, root = document.documentElement
     get theme() {
       return root.dataset.theme;
     },
+    /** What "auto" would pick right now. */
+    get system() {
+      return mql?.matches ? 'light' : 'dark';
+    },
+    /** Flip light ↔ dark. Landing on the system's own choice goes back to "auto". */
+    toggle() {
+      const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      this.set(next === this.system ? 'auto' : next);
+    },
     set(next) {
       pref = THEME_PREFS.includes(next) ? next : 'auto';
       try {
-        localStorage.setItem(KEY, pref);
+        storage.setItem(KEY, pref);
       } catch {
         /* ignore */
       }

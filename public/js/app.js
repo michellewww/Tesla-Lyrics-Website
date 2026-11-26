@@ -10,6 +10,7 @@ import { initTheme } from './theme.js';
 import { applyI18n, resolveLang, setLang, t } from './i18n.js';
 import { LIMITS, loadSettings, saveSettings } from './settings.js';
 import { createDemo } from './demo.js';
+import { isPersistent, storage } from './storage.js';
 
 const $ = (id) => document.getElementById(id);
 const root = document.documentElement;
@@ -22,6 +23,8 @@ const els = {
   title: $('title'),
   artist: $('artist'),
   syncChip: $('sync-chip'),
+  simplifiedChip: $('simplified-chip'),
+  themeBtn: $('btn-theme'),
   seekbar: $('seekbar'),
   barFill: $('bar-fill'),
   barThumb: $('bar-thumb'),
@@ -51,7 +54,7 @@ const DEMO = new URLSearchParams(location.search).has('demo');
 const KEY_CLIENT_ID = 'spotify:client_id';
 const TOOLBAR_OFFSET_STEP = 250;
 
-const settings = loadSettings();
+const settings = loadSettings(storage);
 const clock = new PlaybackClock();
 const state = {
   player: null,
@@ -61,7 +64,8 @@ const state = {
   type: null,
   isPlaying: false,
   track: null,
-  lyrics: { status: 'idle', lines: [] },
+  lyrics: { status: 'idle', lines: [] }, // what is shown (possibly converted to Simplified)
+  lyricsRaw: null, // what LRCLIB returned
   lines: [], // displayed lines (synced: with intro break)
   segs: [], // per line: karaoke segments
   segEls: [], // per line: segment <span>s
@@ -84,6 +88,8 @@ const state = {
 };
 
 let theme;
+let t2s = null; // lazily loaded Traditional → Simplified converter (js/t2s.js)
+let t2sLoading = null;
 
 // ---------- boot ----------
 
@@ -95,7 +101,7 @@ boot()
   .finally(() => root.classList.remove('booting'));
 
 async function boot() {
-  theme = initTheme({ onChange: updateThemeChrome });
+  theme = initTheme({ onChange: updateThemeChrome, storage });
   setLang(resolveLang(settings.lang, navigator.languages || [navigator.language]));
   applyI18n();
   applySettings();
@@ -115,7 +121,7 @@ async function boot() {
   }
 
   const redirectUri = redirectUriFor(location);
-  const clientId = (CONFIG.spotifyClientId || localStorage.getItem(KEY_CLIENT_ID) || '').trim();
+  const clientId = (CONFIG.spotifyClientId || storage.getItem(KEY_CLIENT_ID) || '').trim();
   const clientIdEditable = !CONFIG.spotifyClientId;
   $('change-client').hidden = !clientIdEditable;
   $('menu-client').hidden = !clientIdEditable;
@@ -126,7 +132,7 @@ async function boot() {
     return;
   }
 
-  state.auth = createAuth({ clientId, redirectUri, scopes: CONFIG.scopes });
+  state.auth = createAuth({ clientId, redirectUri, scopes: CONFIG.scopes, storage });
   try {
     if (await state.auth.handleRedirect(location.href)) history.replaceState(null, '', redirectUri);
   } catch (e) {
@@ -141,10 +147,11 @@ async function boot() {
   }
 
   state.player = createSpotify({ auth: state.auth });
-  state.lyricsProvider = createLyricsProvider({ base: CONFIG.lrclibBase, client: CONFIG.lrclibClient });
+  state.lyricsProvider = createLyricsProvider({ base: CONFIG.lrclibBase, client: CONFIG.lrclibClient, storage });
   showScreen('player');
   renderAllText();
   startPolling();
+  if (!isPersistent) toast(t('storage.notSaved'));
 }
 
 function authMessage(e) {
@@ -180,7 +187,7 @@ function applySettings() {
   root.dataset.bg = settings.background;
   root.dataset.karaoke = settings.karaoke ? 'on' : 'off';
   root.dataset.translation = settings.translation ? 'on' : 'off';
-  els.syncLabel.textContent = formatOffset(settings.offsetMs);
+  renderSyncLabel();
   syncPanel();
   // Size and alignment change line positions, so re-center the active line.
   requestAnimationFrame(() => scrollToActive(false));
@@ -188,7 +195,8 @@ function applySettings() {
 
 function updateSetting(key, value) {
   settings[key] = value;
-  saveSettings(settings);
+  saveSettings(settings, storage);
+  if (key === 'simplified') refreshLyricsPresentation();
   if (key === 'lang') {
     setLang(resolveLang(value, navigator.languages || [navigator.language]));
     applyI18n();
@@ -207,6 +215,13 @@ function syncPanel() {
     for (const b of group.querySelectorAll('[data-value]')) b.setAttribute('aria-pressed', String(b.dataset.value === current));
   }
   for (const input of document.querySelectorAll('[data-setting-bool]')) input.checked = Boolean(settings[input.dataset.settingBool]);
+}
+
+/** Toolbar shows a compact signed value; the tooltip spells it out. */
+function renderSyncLabel() {
+  const ms = settings.offsetMs;
+  els.syncLabel.textContent = ms ? formatOffset(ms, true) : t('sync.inSync');
+  $('sync-reset').title = ms ? `${formatOffset(ms)} · ${t('sync.resetTitle')}` : t('sync.resetTitle');
 }
 
 function formatOffset(ms, signed = false) {
@@ -333,14 +348,68 @@ function setTrack(track) {
 
 function renderTrackText() {
   const track = state.track;
-  els.title.textContent = track ? track.name : state.type === 'ad' ? t('player.ad') : t('player.notPlaying');
-  els.artist.textContent = track ? track.artists.join(', ') : '';
+  const convert = track && wantsSimplified(trackTexts(track));
+  if (convert && !t2s) loadT2S().then(() => state.track === track && renderTrackText());
+  const show = (text) => (convert && t2s ? t2s.toSimplified(text) : text);
+  const name = track ? show(track.name) : '';
+  const artists = track ? track.artists.map(show) : [];
+
+  els.title.textContent = track ? name : state.type === 'ad' ? t('player.ad') : t('player.notPlaying');
+  els.artist.textContent = artists.join(', ');
   const lang = track ? guessLang([track.name, ...track.artists]) : '';
   for (const el of [els.title, els.artist]) {
     if (lang) el.lang = lang;
     else el.removeAttribute('lang');
   }
-  document.title = track ? `${track.name} · ${track.artists[0] ?? ''}` : t('app.title');
+  document.title = track ? `${name} · ${artists[0] ?? ''}` : t('app.title');
+}
+
+// ---------- Traditional → Simplified Chinese ----------
+
+function loadT2S() {
+  t2sLoading ||= import('./t2s.js')
+    .then((m) => (t2s = m))
+    .catch((e) => {
+      console.warn('Chinese converter failed to load', e);
+      t2sLoading = null;
+      return null;
+    });
+  return t2sLoading;
+}
+
+function trackTexts(track) {
+  return track ? [track.name, ...track.artists, track.album || ''] : [];
+}
+
+/**
+ * Convert only Chinese: guessLang says 'zh-CN' for Han text without kana or hangul.
+ * Japanese and Korean also use Han characters and must not be converted, so the
+ * decision looks at the title, artists and lyrics together.
+ */
+function wantsSimplified(texts) {
+  return settings.simplified && guessLang(texts) === 'zh-CN';
+}
+
+/** What to display for a lyrics result: converted to Simplified when that applies. */
+async function presentLyrics(raw, track) {
+  const lines = raw?.lines || [];
+  const texts = lines.map((l) => `${l.text} ${l.translation || ''}`);
+  if (!lines.length || !wantsSimplified([...trackTexts(track), ...texts])) return raw;
+  const mod = await loadT2S();
+  if (!mod) return raw;
+  const converted = mod.simplifyLines(lines);
+  const changed = converted.some((l, i) => l.text !== lines[i].text || l.translation !== lines[i].translation);
+  return changed ? { ...raw, lines: converted, simplified: true } : raw;
+}
+
+/** Re-apply (or undo) the conversion after the setting changes. */
+async function refreshLyricsPresentation() {
+  renderTrackText();
+  const track = state.track;
+  const raw = state.lyricsRaw;
+  if (!raw || !track) return;
+  const shown = await presentLyrics(raw, track);
+  if (state.track === track && state.lyricsRaw === raw) setLyrics(shown);
 }
 
 async function updateArtwork(track) {
@@ -374,17 +443,31 @@ function updateThemeChrome() {
   // Match the browser UI colour to the page background.
   const bg = getComputedStyle(root).getPropertyValue('--bg').trim();
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', bg || '#121212');
+  // The toggle shows the current mode; its label says what tapping it does.
+  const dark = root.dataset.theme === 'dark';
+  els.themeBtn.querySelector('use').setAttribute('href', dark ? '#i-moon' : '#i-sun');
+  const label = t(dark ? 'aria.toLight' : 'aria.toDark');
+  els.themeBtn.setAttribute('aria-label', label);
+  els.themeBtn.title = label;
   syncPanel();
 }
 
 async function loadLyrics(track) {
   const seq = ++state.lyricsSeq;
-  if (!track) return setLyrics({ status: 'idle', lines: [] });
-  if (track.isEpisode) return setLyrics({ status: 'episode', lines: [] });
+  if (!track || track.isEpisode) {
+    state.lyricsRaw = null;
+    return setLyrics({ status: track ? 'episode' : 'idle', lines: [] });
+  }
+  state.lyricsRaw = null;
   setLyrics({ status: 'loading', lines: [] });
   try {
     const result = await state.lyricsProvider.get(track);
-    if (seq === state.lyricsSeq) setLyrics(result);
+    const shown = await presentLyrics(result, track);
+    if (seq !== state.lyricsSeq) return;
+    state.lyricsRaw = result;
+    setLyrics(shown);
+    // Lyrics can reveal a Japanese song with a kanji-only title; re-check the title.
+    if (state.lyricsRaw.lines?.length) renderTrackText();
   } catch (e) {
     console.warn('Lyrics lookup failed', e);
     if (seq === state.lyricsSeq) setLyrics({ status: 'error', lines: [] });
@@ -505,6 +588,7 @@ function renderChip() {
   const key = s === 'synced' ? (state.lyrics.wordSynced ? 'chip.word' : 'chip.line') : s === 'plain' ? 'chip.plain' : null;
   els.syncChip.hidden = !key;
   if (key) els.syncChip.textContent = t(key);
+  els.simplifiedChip.hidden = !state.lyrics.simplified;
 }
 
 function renderPlayState() {
@@ -520,7 +604,8 @@ function renderAllText() {
   renderStatus();
   renderChip();
   renderPlayState();
-  els.syncLabel.textContent = formatOffset(settings.offsetMs);
+  renderSyncLabel();
+  updateThemeChrome();
   if (state.loginMessage) $('login-error').textContent = state.loginMessage;
   for (const el of els.lyrics.querySelectorAll('.gap')) el.setAttribute('aria-label', t('status.instrumental'));
 }
@@ -699,6 +784,7 @@ function toast(message) {
 
 function bindUi() {
   els.play.addEventListener('click', togglePlay);
+  els.themeBtn.addEventListener('click', () => theme.toggle());
   els.prev.addEventListener('click', () => skip(-1));
   els.next.addEventListener('click', () => skip(1));
   $('font-down').addEventListener('click', () => changeFont(-0.1));
@@ -789,7 +875,7 @@ function bindUi() {
   });
   $('menu-exit-demo').addEventListener('click', () => location.assign(location.pathname));
   const changeClient = () => {
-    localStorage.removeItem(KEY_CLIENT_ID);
+    storage.removeItem(KEY_CLIENT_ID);
     state.auth?.logout();
     location.assign(location.pathname);
   };
@@ -815,7 +901,7 @@ function bindUi() {
       err.hidden = false;
       return;
     }
-    localStorage.setItem(KEY_CLIENT_ID, id);
+    storage.setItem(KEY_CLIENT_ID, id);
     location.assign(location.pathname);
   });
 

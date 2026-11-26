@@ -9,6 +9,7 @@ export const DEFAULTS = Object.freeze({
   align: 'center', // 'left' | 'center'
   karaoke: true, // character-by-character fill of the current line
   translation: true, // show bilingual translation lines
+  simplified: true, // show Traditional Chinese as Simplified (opencc-js)
   highlight: 'default', // 'default' | 'cover' | 'green' | 'gold' | 'pink'
   background: 'blur', // 'blur' | 'color'
   lang: 'auto', // 'auto' | 'en' | 'zh-CN'
@@ -32,7 +33,7 @@ export function sanitize(input) {
   if (Number.isFinite(input.fontScale)) s.fontScale = Math.round(clamp(input.fontScale, LIMITS.fontScale) * 100) / 100;
   if (Number.isFinite(input.offsetMs)) s.offsetMs = Math.round(clamp(input.offsetMs, LIMITS.offsetMs));
   for (const [k, allowed] of Object.entries(CHOICES)) if (allowed.includes(input[k])) s[k] = input[k];
-  for (const k of ['karaoke', 'translation']) if (typeof input[k] === 'boolean') s[k] = input[k];
+  for (const k of ['karaoke', 'translation', 'simplified']) if (typeof input[k] === 'boolean') s[k] = input[k];
   return s;
 }
 

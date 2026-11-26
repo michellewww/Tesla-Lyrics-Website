@@ -87,6 +87,24 @@ const DEMO_TRACKS = [
     },
   },
   {
+    id: 'demo-tw',
+    name: '雨後的公路',
+    artists: ['佔位樂隊'],
+    album: '示範專輯',
+    durationMs: 28_000,
+    image: 'assets/demo-4.svg',
+    record: {
+      // Traditional Chinese with word timing — shown converted to Simplified by default.
+      syncedLyrics: enhancedLrc([
+        [3000, '雨後的公路 閃著光', 3800],
+        [8000, '車窗外是 熟悉的街道', 3800],
+        [13000, '讓這首歌 陪我回家', 3600],
+        [18000, '聽見風在 輕輕說話', 3600],
+        [23000, ''],
+      ]),
+    },
+  },
+  {
     id: 'demo-3',
     name: 'Supercharger Serenade',
     artists: ['The Placeholders'],

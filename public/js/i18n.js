@@ -109,6 +109,12 @@ export const STRINGS = {
     'toast.unreachable': "Couldn't reach Spotify.",
     'toast.noFullscreen': "Full screen isn't available here.",
     'demo.badge': 'Demo',
+    'aria.toLight': 'Switch to light mode',
+    'aria.toDark': 'Switch to dark mode',
+    'chip.simplified': 'Shown in Simplified',
+    'settings.simplified': 'Traditional → Simplified Chinese',
+    'settings.simplifiedHint': 'Shows Traditional Chinese lyrics and song titles in Simplified characters, using OpenCC. Japanese lyrics are left alone.',
+    'storage.notSaved': "This browser isn't saving data, so you'll need to log in again next time.",
   },
 
   'zh-CN': {
@@ -214,6 +220,12 @@ export const STRINGS = {
     'toast.unreachable': '无法连接 Spotify。',
     'toast.noFullscreen': '此处无法全屏。',
     'demo.badge': '演示',
+    'aria.toLight': '切换到浅色模式',
+    'aria.toDark': '切换到深色模式',
+    'chip.simplified': '已转简体',
+    'settings.simplified': '繁体转简体',
+    'settings.simplifiedHint': '使用 OpenCC 将繁体中文的歌词和歌名显示为简体字。日文歌词不受影响。',
+    'storage.notSaved': '此浏览器不保存数据，下次需要重新登录。',
   },
 };
 

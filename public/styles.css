@@ -268,7 +268,7 @@ html[data-bg="color"] .backdrop .tint { background: var(--tint-flat); }
 
 .player {
   display: grid;
-  grid-template-columns: minmax(300px, 34vw) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 36vw) minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
 }
@@ -383,12 +383,13 @@ body.is-demo .demo-chip { display: inline-flex; }
 .controls { display: flex; align-items: center; justify-content: center; gap: clamp(12px, 2vw, 28px); }
 .tools { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; }
 .side > .tools { max-width: none; }
+.tools .pill { height: 44px; min-width: 44px; padding: 0 12px; }
+.tools .pill.icon { width: 44px; padding: 0; font-size: 21px; }
 .tools .group { display: inline-flex; gap: 2px; }
 .tools .group .pill:first-child { border-radius: 999px 6px 6px 999px; }
 .tools .group .pill:last-child { border-radius: 6px 999px 999px 6px; }
 .tools .group .pill:not(:first-child):not(:last-child) { border-radius: 6px; }
-.sync-label { font-size: 14px; min-width: 88px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.sync-label svg { font-size: 16px; opacity: 0.8; }
+.tools .sync-label { font-size: 14px; min-width: 72px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .conn { margin: 0; text-align: center; font-size: 14px; color: var(--fg-2); }
 
 /* ---------- lyrics ---------- */
@@ -649,7 +650,6 @@ dialog.sheet::backdrop { background: rgba(0, 0, 0, 0.4); }
   .tools .pill { height: 40px; min-width: 38px; padding: 0 10px; }
   .tools .pill.icon { width: 40px; padding: 0; }
   .tools .sync-label { min-width: 0; font-size: 13px; }
-  .tools .sync-label svg { display: none; }
   .lyrics { padding: 28vh 20px 46vh; }
   html[data-align="center"] .lyrics { padding-left: 20px; }
   .lyrics.is-plain { padding-top: 6vh; }
