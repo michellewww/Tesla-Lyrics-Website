@@ -163,3 +163,18 @@ test('connectionInfo copes with nothing playing and partial failures', async () 
   assert.deepEqual(info.devices, []);
   assert.ok(info.error);
 });
+
+test('upNext returns the next queued track and the repeat mode', async () => {
+  const next = { ...TRACK_RESPONSE.item, id: 't2', name: 'Next Song' };
+  const fetchFn = fakeFetch((url) => {
+    const path = new URL(url).pathname;
+    if (path === '/v1/me/player/queue') return jsonResponse(200, { currently_playing: TRACK_RESPONSE.item, queue: [next] });
+    if (path === '/v1/me/player') return jsonResponse(200, { ...TRACK_RESPONSE, repeat_state: 'context' });
+    return jsonResponse(404, {});
+  });
+  const up = await createSpotify({ auth: fakeAuth(), fetchFn }).upNext();
+  assert.equal(up.currentId, 't1');
+  assert.equal(up.next.id, 't2');
+  assert.equal(up.next.name, 'Next Song');
+  assert.equal(up.repeat, 'context');
+});

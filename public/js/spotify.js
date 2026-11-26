@@ -27,11 +27,8 @@ export class ApiError extends Error {
   }
 }
 
-/** Convert a currently-playing response into the shape the app uses. */
-export function normalizePlayback(data, sampledAt) {
-  if (!data) return { active: false, isPlaying: false, type: null, track: null, progressMs: 0, sampledAt };
-  const type = data.currently_playing_type || (data.item?.type ?? null);
-  const item = data.item;
+/** A Spotify track/episode object in the shape the app uses (null for anything else). */
+export function normalizeItem(item) {
   let track = null;
   if (item && item.type === 'track') {
     const images = item.album?.images || [];
@@ -59,6 +56,14 @@ export function normalizePlayback(data, sampledAt) {
       isEpisode: true,
     };
   }
+  return track;
+}
+
+/** Convert a currently-playing response into the shape the app uses. */
+export function normalizePlayback(data, sampledAt) {
+  if (!data) return { active: false, isPlaying: false, type: null, track: null, progressMs: 0, sampledAt };
+  const type = data.currently_playing_type || (data.item?.type ?? null);
+  const track = normalizeItem(data.item);
   return {
     active: true,
     isPlaying: Boolean(data.is_playing),
@@ -121,6 +126,23 @@ export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a)
       if (!item || item.type !== 'track' || item.id !== trackId) return null;
       return { name: item.name, artists: (item.artists || []).map((a) => a.name), album: item.album?.name || '' };
     },
+    /**
+     * What plays after the current track, per Spotify's queue, plus the repeat mode (with
+     * "repeat one" the same track comes back). Car devices report track changes to
+     * Spotify late, so the app uses this to switch to the next song on time.
+     */
+    async upNext() {
+      const [queue, player] = await Promise.all([
+        api('GET', '/me/player/queue'),
+        api('GET', '/me/player').catch(() => null),
+      ]);
+      return {
+        currentId: queue?.currently_playing?.id || null,
+        next: normalizeItem(queue?.queue?.[0]),
+        repeat: player?.repeat_state || 'off',
+      };
+    },
+
     /** The Spotify account this app is signed in to (its display name). */
     async profile() {
       const me = await api('GET', '/me');

@@ -149,7 +149,7 @@ function meta(t) {
   return { ...rest, imageSmall: t.image, imageMedium: t.image };
 }
 
-export function createDemo({ now = () => performance.now(), latencyMs = 40 } = {}) {
+export function createDemo({ now = () => performance.now(), latencyMs = 40, reportLagMs = 0 } = {}) {
   let index = 0;
   let baseMs = 0;
   let baseAt = now();
@@ -161,47 +161,77 @@ export function createDemo({ now = () => performance.now(), latencyMs = 40 } = {
     baseAt = now();
   };
 
+  // reportLagMs (?demo&lag=8) mimics a car's Spotify, which tells Spotify's servers about
+  // changes only after a delay: nowPlaying() reports the state as it was that long ago.
+  const snapshot = () => ({ index, baseMs, baseAt, playing });
+  let reported = snapshot();
+  function changed() {
+    const snap = snapshot();
+    if (!reportLagMs) reported = snap;
+    else setTimeout(() => (reported = snap), reportLagMs);
+  }
+
   function advanceIfEnded() {
+    let moved = false;
     while (pos() >= DEMO_TRACKS[index].durationMs) {
       const over = pos() - DEMO_TRACKS[index].durationMs;
       index = (index + 1) % DEMO_TRACKS.length;
       reset(over);
+      moved = true;
     }
+    if (moved) changed();
   }
 
   const player = {
     async nowPlaying() {
       await sleep(latencyMs);
       advanceIfEnded();
+      const r = reportLagMs ? reported : snapshot();
+      const t = DEMO_TRACKS[r.index];
+      const at = Math.min(t.durationMs, r.baseMs + (r.playing ? now() - r.baseAt : 0));
       return {
         active: true,
-        isPlaying: playing,
+        isPlaying: r.playing,
         type: 'track',
-        track: meta(DEMO_TRACKS[index]),
-        progressMs: Math.round(pos()),
+        track: meta(t),
+        progressMs: Math.round(at),
         sampledAt: now(),
+      };
+    },
+    async upNext() {
+      await sleep(latencyMs);
+      advanceIfEnded();
+      return {
+        currentId: DEMO_TRACKS[index].id,
+        next: meta(DEMO_TRACKS[(index + 1) % DEMO_TRACKS.length]),
+        repeat: 'off',
       };
     },
     async play() {
       if (!playing) {
         reset(pos());
         playing = true;
+        changed();
       }
     },
     async pause() {
       reset(pos());
       playing = false;
+      changed();
     },
     async next() {
       index = (index + 1) % DEMO_TRACKS.length;
       reset(0);
+      changed();
     },
     async previous() {
       if (pos() < 3000) index = (index - 1 + DEMO_TRACKS.length) % DEMO_TRACKS.length;
       reset(0);
+      changed();
     },
     async seek(ms) {
       reset(Math.max(0, Math.min(ms, DEMO_TRACKS[index].durationMs - 1)));
+      changed();
     },
   };
 

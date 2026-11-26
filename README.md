@@ -19,7 +19,8 @@ no server and no client secret.
 
   The looser searches are accepted only when the song's length matches (±3 s for a title match, ±2 s plus a matching
   album otherwise). Synced lyrics are preferred, and plain lyrics are shown if that's all LRCLIB has.
-- **Line sync that stays smooth.** It polls Spotify every 2 s and interpolates the position locally every frame.
+- **Line sync that stays smooth.** It polls Spotify every second while music plays and interpolates the position
+  locally every frame.
 - **Tap any line to jump there.** Also play/pause, previous/next, and a seek bar.
 - **Adjustments:** text size, line spacing, timing offset (±0.1 s / ±0.5 s steps), left or centered alignment, karaoke on/off,
   show translations, highlight colour (default, album colour, green, gold, pink), background (blurred cover or
@@ -149,6 +150,11 @@ The app is built for the car's Chromium-based browser:
 - **Full screen:** Tesla's browser generally doesn't support the Fullscreen API, so that setting only appears where
   it works. Owners use a community workaround: open `youtube.com/redirect?q=<site URL>` and confirm. Tesla doesn't
   support it and has broken it in some updates.
+- **Reporting delay:** the car's Spotify tells Spotify's servers about changes a few seconds late (commands
+  *to* the car, like skip from the app, arrive quickly). To make up for it, the app reads Spotify's queue and
+  prefetches the next song's lyrics, switches to that song the moment the current one ends instead of waiting
+  for the late report, and keeps a tapped lyric line in place until Spotify catches up. Skips pressed on the
+  car itself still show up only once Spotify reports them. To try it without a car, open `?demo&lag=5`.
 - **Dark mode:** Tesla's browser answers the dark-mode query but doesn't follow the car's day/night display, so it
   is detected by its user agent (`Tesla/…`) and Auto switches at sunrise and sunset instead.
 - **Restrictions you can't control:** Parental Controls can disable the browser, and whether it can be used while
