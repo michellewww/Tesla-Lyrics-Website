@@ -11,3 +11,13 @@ test('demo with reportLagMs reports changes late, like a car, while upNext is cu
   await new Promise((r) => setTimeout(r, 90));
   assert.notEqual((await player.nowPlaying()).track.id, first.track.id); // reported now
 });
+
+test('like a car, the late report also puts the position behind by the delay', async () => {
+  let t = 0;
+  const { player } = createDemo({ latencyMs: 0, reportLagMs: 50, now: () => t });
+  await player.seek(10_000);
+  await new Promise((r) => setTimeout(r, 80)); // the report lands at t = 0 (fake clock)
+  t = 3000;
+  const r = await player.nowPlaying();
+  assert.equal(r.progressMs, 13_000); // counted from when Spotify heard, not from the seek
+});

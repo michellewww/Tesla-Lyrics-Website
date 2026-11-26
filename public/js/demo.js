@@ -161,14 +161,15 @@ export function createDemo({ now = () => performance.now(), latencyMs = 40, repo
     baseAt = now();
   };
 
-  // reportLagMs (?demo&lag=8) mimics a car's Spotify, which tells Spotify's servers about
-  // changes only after a delay: nowPlaying() reports the state as it was that long ago.
+  // reportLagMs (?demo&lag=5) mimics a car's Spotify, which tells Spotify's servers about
+  // changes only after a delay. Spotify then counts the position from when it heard about
+  // the change, so the reported position runs behind by that delay too.
   const snapshot = () => ({ index, baseMs, baseAt, playing });
   let reported = snapshot();
   function changed() {
     const snap = snapshot();
     if (!reportLagMs) reported = snap;
-    else setTimeout(() => (reported = snap), reportLagMs);
+    else setTimeout(() => (reported = { ...snap, baseAt: now() }), reportLagMs);
   }
 
   function advanceIfEnded() {

@@ -97,6 +97,7 @@ const state = {
   upNextTimer: 0,
   prediction: null, // { fromId, toId, at }: switched to the next song before Spotify reported it
   pendingSeek: null, // { trackId, target, at }: a tapped line Spotify hasn't confirmed yet
+  noRewind: null, // track id whose start we timed ourselves: don't pull it back for late reports
 };
 
 let theme;
@@ -378,6 +379,16 @@ function applyPlayback(pb, { predicted = false } = {}) {
     }
   }
 
+  // We started this song ourselves at the moment the last one ended. The car tells Spotify
+  // about the new song late, so Spotify counts its position from then and reports it a
+  // few seconds behind; never pull the lyrics back for that. Reports ahead of us still
+  // apply, and a big rewind (> 6 s, e.g. a seek) ends the rule.
+  if (!predicted && !keepPosition && track && state.noRewind === track.id) {
+    const behind = clock.position(pb.sampledAt) - pb.progressMs;
+    if (behind > 0 && behind < 6000) keepPosition = true;
+    else if (behind >= 6000) state.noRewind = null;
+  }
+
   if (track && keepPosition) {
     if (clock.playing !== pb.isPlaying) clock.setPlaying(pb.isPlaying);
   } else if (track) {
@@ -401,6 +412,7 @@ function setTrack(track) {
   state.track = track;
   state.lastSecond = -1;
   if (state.upNext?.forId !== track?.id) state.upNext = null;
+  if (state.noRewind !== track?.id) state.noRewind = null;
   clearTimeout(state.upNextTimer);
   // Ask Spotify's queue what comes next (once the change has settled) and fetch its lyrics.
   if (track && !track.isEpisode && state.player?.upNext) state.upNextTimer = setTimeout(() => prefetchUpNext(track), 3000);
@@ -728,6 +740,7 @@ function predictNext() {
     { active: true, isPlaying: true, type: next.isEpisode ? 'episode' : 'track', track: next, progressMs: 0, sampledAt: performance.now() },
     { predicted: true },
   );
+  state.noRewind = next.id;
   pollSoon(1500);
 }
 

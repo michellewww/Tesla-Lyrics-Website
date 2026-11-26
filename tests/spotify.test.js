@@ -178,3 +178,26 @@ test('upNext returns the next queued track and the repeat mode', async () => {
   assert.equal(up.next.name, 'Next Song');
   assert.equal(up.repeat, 'context');
 });
+
+test('sample time ignores token refresh and slow first connections', async () => {
+  let t = 0;
+  const roundTrips = [1800, 200]; // a cold first request, then a normal one
+  const fetchFn = async () => {
+    t += roundTrips.shift();
+    return jsonResponse(200, TRACK_RESPONSE);
+  };
+  const auth = {
+    async getAccessToken() {
+      t += 700; // a token refresh before the request must not count
+      return 'AT';
+    },
+    async refresh() {
+      return 'AT';
+    },
+  };
+  const sp = createSpotify({ auth, fetchFn, now: () => t });
+  const first = await sp.nowPlaying(); // 700 refresh, 1800 round trip → received at 2500
+  assert.equal(first.sampledAt, 2500 - 900);
+  const second = await sp.nowPlaying(); // received at 2500 + 700 + 200 = 3400
+  assert.equal(second.sampledAt, 3400 - 100); // fastest round trip (200) / 2
+});
