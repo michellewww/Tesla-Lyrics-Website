@@ -8,6 +8,9 @@
 //   - When a song plays to its end, the next one started right then — even though Spotify
 //     hears about it late and counts its position from that later moment. That gap is kept
 //     as an offset, so the lyrics stay on time instead of lagging the whole song.
+//   - A skip on the car's own controls is heard about just as late, but there is no way to
+//     see when it really happened. So the delay measured at song ends (and when Spotify
+//     later catches up) is remembered, and the usual delay is applied to such skips.
 //   - A big difference (a seek or rewind in the car) is followed once two replies in a row
 //     agree on it; a single reply with a bad timestamp is ignored.
 //   - Replies that took seconds to arrive say what is playing but not precisely where, so
@@ -27,16 +30,27 @@ const IMPRECISE_MS = 600; // a reply whose timing is less certain than this can'
 const IMPRECISE_RUN = 5; // ...unless this many in a row are like that
 const MAX_LATE_START_MS = 10_000; // how late Spotify may hear about a song that followed the last one
 const SEEK_HOLD_MS = 20_000; // how long a tapped line waits for Spotify to confirm it
+const LATE_STARTS_KEPT = 5; // measured late starts the usual delay is taken from
+const MIN_USUAL_LATE_MS = 300; // a usual delay smaller than this is treated as none
+const OWN_CHANGE_MS = 15_000; // a song change this soon after our own command is ours
+const CATCH_UP_LEARN_MS = 20_000; // Spotify catching up this early in a song shows its delay
 
 export class PlaybackSync {
-  constructor({ now = () => performance.now() } = {}) {
+  /**
+   * `lateStarts`: delays measured on earlier visits (see `onLateStart`), so the first skip
+   * of a drive is already timed right. `onLateStart(list)` is called when one is measured.
+   */
+  constructor({ now = () => performance.now(), lateStarts = [], onLateStart = null } = {}) {
     this.now = now;
+    this.lateStarts = lateStarts.filter((v) => Number.isFinite(v) && v >= 0 && v < MAX_LATE_START_MS).slice(-LATE_STARTS_KEPT);
+    this.onLateStart = onLateStart;
+    this.ownChangeAt = null; // when this page last asked Spotify to change song
     this.clock = new PlaybackClock({ now });
     this.trackId = null;
     this.offset = 0; // ms the song really is ahead of what Spotify reports (late start)
     this.diffs = []; // recent (Spotify − us) differences, ms
     this.jump = null; // a big difference seen once, waiting for a second reply to agree
-    this.start = null; // { endedAt, precise }: how the current song's start was timed
+    this.start = null; // { endedAt, precise, byPlayer, at }: how the current song's start was timed
     this.impreciseRun = 0;
     this.pendingSeek = null; // { target, at }
   }
@@ -51,6 +65,18 @@ export class PlaybackSync {
 
   get playing() {
     return this.clock.playing;
+  }
+
+  /** How late Spotify usually hears about a new song from this player (0 if not late). */
+  get usualLateStart() {
+    if (!this.lateStarts.length) return 0;
+    const usual = median(this.lateStarts);
+    return usual >= MIN_USUAL_LATE_MS ? usual : 0;
+  }
+
+  /** This page is about to change the song itself: Spotify hears of that at once. */
+  expectChange() {
+    this.ownChangeAt = this.now();
   }
 
   /** The user tapped a line: show it now and hold it until Spotify confirms. */
@@ -155,7 +181,7 @@ export class PlaybackSync {
     // The song was first seen through a slow reply: time it properly now.
     if (this.start && !this.start.precise) {
       this.start.precise = true;
-      this.offset = this.#lateStart(progressMs, at);
+      this.offset = this.#lateStart(progressMs, at, isPlaying, true);
       this.#forget();
       this.#set(progressMs + this.offset, at, isPlaying);
       return;
@@ -174,6 +200,10 @@ export class PlaybackSync {
       const seen = this.jump;
       this.jump = { diff };
       if (!seen || Math.abs(seen.diff - diff) > JUMP_AGREE_MS) return;
+      // Spotify's timeline leaping forward early in a song is it catching up with a start
+      // it heard about late: the size of the leap is that delay.
+      const s = this.start;
+      if (s && !s.own && diff > 0 && diff < MAX_LATE_START_MS && at - s.at < CATCH_UP_LEARN_MS) this.#learn(diff);
       if (this.offset > 0 && Math.abs(diff - this.offset) < JUMP_MS) {
         // Spotify caught up with the late start we were covering: same place, no move.
         this.offset = 0;
@@ -206,9 +236,18 @@ export class PlaybackSync {
     // may report it as having started later (it heard late). Keep that difference.
     const prev = this.clock;
     const followsOn = this.trackId !== null && prev.playing && Number.isFinite(prev.durationMs);
-    this.start = { endedAt: followsOn ? prev.baseAt + (prev.durationMs - prev.baseMs) : null, precise };
+    const own = this.ownChangeAt !== null && this.now() - this.ownChangeAt < OWN_CHANGE_MS;
+    this.ownChangeAt = null;
+    this.start = {
+      endedAt: followsOn ? prev.baseAt + (prev.durationMs - prev.baseMs) : null,
+      precise,
+      at,
+      own,
+      // Changed on the player itself (not from this page, and not the first song we see).
+      byPlayer: this.trackId !== null && !own,
+    };
     this.trackId = trackId;
-    this.offset = this.#lateStart(progressMs, at);
+    this.offset = this.#lateStart(progressMs, at, isPlaying, precise);
     this.pendingSeek = null;
     this.impreciseRun = 0;
     this.#forget();
@@ -217,13 +256,31 @@ export class PlaybackSync {
     this.#set(progressMs + this.offset, at, isPlaying);
   }
 
-  /** How much later than the previous song's end Spotify says this one started (0 if n/a). */
-  #lateStart(progressMs, at) {
-    const endedAt = this.start?.endedAt;
-    if (endedAt == null) return 0;
-    const sinceEnd = at - endedAt;
-    const late = sinceEnd - progressMs;
-    return sinceEnd >= 0 && sinceEnd < MAX_LATE_START_MS + 5000 && late > 0 && late < MAX_LATE_START_MS ? late : 0;
+  /**
+   * How much later than it really started Spotify counts this song from (0 if n/a).
+   * Measured when the song followed the previous one's end; otherwise, for a skip on the
+   * player's own controls, the usual delay measured before.
+   */
+  #lateStart(progressMs, at, isPlaying, precise) {
+    const { endedAt, byPlayer } = this.start ?? {};
+    if (endedAt != null) {
+      const sinceEnd = at - endedAt;
+      const late = sinceEnd - progressMs;
+      if (sinceEnd >= 0 && sinceEnd < MAX_LATE_START_MS + 5000 && late > -JUMP_MS && late < MAX_LATE_START_MS) {
+        const measured = Math.max(0, late);
+        if (precise) this.#learn(measured);
+        return measured;
+      }
+    }
+    // Only a song that is just starting: one picked up part-way was not a plain skip.
+    if (byPlayer && isPlaying && progressMs < MAX_LATE_START_MS) return this.usualLateStart;
+    return 0;
+  }
+
+  #learn(lateMs) {
+    this.lateStarts.push(Math.round(lateMs));
+    if (this.lateStarts.length > LATE_STARTS_KEPT) this.lateStarts.shift();
+    this.onLateStart?.([...this.lateStarts]);
   }
 
   /** The clock's position at `at`, not capped at the song's length. */

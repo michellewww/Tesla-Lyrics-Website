@@ -19,11 +19,17 @@ export const CONFIG = {
   // Spotify app's rate limit (shared by everyone using this Client ID); on a 429 the app
   // backs off for as long as Spotify asks.
   pollMs: {
-    playing: 1000,
-    paused: 2000,
-    idle: 3000,
+    playing: 500,
+    paused: 1000,
+    idle: 2000,
     hidden: 15000,
   },
+
+  // Optional backup lyrics from QQ Music, for songs LRCLIB has no timed lyrics for (mostly
+  // Chinese ones). QQ Music can't be asked from a web page directly, so this is the address
+  // of your own copy of relay/qq-lyrics-worker.js (see README, "QQ Music backup"), e.g.
+  // 'https://qq-lyrics.yourname.workers.dev'. Leave empty to use LRCLIB only.
+  lyricsRelay: '',
 
   lrclibBase: 'https://lrclib.net',
   // LRCLIB asks clients to identify themselves. Browsers can't set User-Agent, so

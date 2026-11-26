@@ -1,11 +1,12 @@
 // Lyrics lookup via LRCLIB (https://lrclib.net) — free, no API key, CORS-enabled.
 // Prefers word-level timing (Lyricsfile) > line-synced LRC > plain text.
 import { parseLrc, parseLyricsfile, parsePlain } from './lrc.js';
-import { cleanTitle, pickBest } from './match.js';
+import { cleanTitle, normalize, pickBest } from './match.js';
 import { withDeadline } from './net.js';
 
-const CACHE_PREFIX = 'lyrics:v2:';
-const CACHE_INDEX = 'lyrics:v2:index';
+// Bumped whenever matching changes in a way that makes saved results untrustworthy.
+const CACHE_VERSION = 'lyrics:v3:';
+const OLD_CACHES = ['lyrics:v2:'];
 const CACHE_MAX = 80;
 const MISS_TTL_MS = 24 * 60 * 60 * 1000; // a miss is re-checked after a day (LRCLIB grows)
 const INCOMPLETE_TTL_MS = 10 * 60 * 1000; // a search cut short by an error is retried after 10 min
@@ -41,6 +42,22 @@ const unique = (list) => [...new Set(list.filter(Boolean))];
 function closer(a, b, durationSec) {
   if (!a || !b) return a || b || null;
   return Math.abs(b.duration - durationSec) < Math.abs(a.duration - durationSec) ? b : a;
+}
+
+/** The distinct lines of a record's lyrics, without timestamps, in a comparable form. */
+function lyricLines(record, fold) {
+  const text = String(record?.plainLyrics || record?.syncedLyrics || '').replace(/[[<]\d+:\d+(?:[.:]\d+)?[\]>]/g, '');
+  return new Set(text.split('\n').map((l) => normalize(fold ? fold(l) : l)).filter((l) => l.length > 1));
+}
+
+/** Whether two records hold the words of the same song (at least half their lines shared). */
+export function sameLyrics(a, b, fold) {
+  const x = lyricLines(a, fold);
+  const y = lyricLines(b, fold);
+  if (!x.size || !y.size) return false;
+  let shared = 0;
+  for (const line of x) if (y.has(line)) shared++;
+  return shared / Math.min(x.size, y.size) >= 0.5;
 }
 const timed = (results) => (Array.isArray(results) ? results.filter((r) => r?.duration) : []);
 
@@ -84,8 +101,24 @@ export function createLyricsProvider({
   storage = globalThis.localStorage,
   now = () => Date.now(),
   timeoutMs = 10_000,
+  // Optional second source (QQ Music, see qq.js): async (track, { en, fold }) → record | null.
+  // Asked only when LRCLIB has no timed lyrics for the song.
+  backup = null,
 } = {}) {
+  // Results saved without the backup source are not reused once there is one (and the
+  // other way round), so songs that only had plain lyrics get looked up again.
+  const CACHE_PREFIX = backup ? `${CACHE_VERSION}b:` : CACHE_VERSION;
+  const CACHE_INDEX = `${CACHE_PREFIX}index`;
   const memory = new Map();
+  // Results saved by an older version of the matching (some were the wrong song).
+  for (const old of OLD_CACHES) {
+    try {
+      for (const id of JSON.parse(storage?.getItem(`${old}index`) || '[]')) storage.removeItem(old + id);
+      storage?.removeItem(`${old}index`);
+    } catch {
+      /* nothing saved, or storage unavailable */
+    }
+  }
   const inflight = new Map(); // track id → lookup in progress (shared by repeat callers)
   const generation = new Map(); // track id → bumped by forget(), so older lookups don't save
   let pausedUntil = 0; // after a 429, LRCLIB asks clients to wait (Retry-After)
@@ -170,16 +203,6 @@ export function createLyricsProvider({
         return null;
       }
     };
-    // Returns { record, incomplete }: incomplete when an error cut the search short, so
-    // a better match may still exist and the result shouldn't be kept for long.
-    // A different-length version's synced lyrics (`far`) beat plain lyrics, but only once
-    // every search for a same-length one has come up empty.
-    const finish = () => {
-      const record = far || fallback;
-      if (record) return { record, incomplete: Boolean(failure) };
-      if (failure) throw failure;
-      return { record: null, incomplete: false };
-    };
     const hit = (record) => ({ record, incomplete: false });
 
     const first = await searchByNames(track, durationSec, fold, req);
@@ -200,6 +223,33 @@ export function createLyricsProvider({
         far = closer(far, second.far, durationSec);
       }
     }
+
+    // The backup source, asked at most once per lookup. Its errors never fail the lookup.
+    let asked = null;
+    let backupFailed = false;
+    const askBackup = () =>
+      (asked ||= !backup
+        ? Promise.resolve(null)
+        : Promise.resolve()
+            .then(() => backup(track, { en, fold }))
+            .catch((e) => {
+              console.warn('Backup lyrics lookup failed', e);
+              backupFailed = true;
+              return null;
+            }));
+    // Returns { record, incomplete }: incomplete when an error cut the search short, so
+    // a better match may still exist and the result shouldn't be kept for long.
+    // Timed lyrics from the backup come first; then a different-length version's timed
+    // lyrics from LRCLIB (`far`), which beat plain lyrics.
+    const finish = async () => {
+      const other = await askBackup();
+      if (good(other)) return hit(other);
+      const record = far || fallback || other;
+      const incomplete = Boolean(failure) || backupFailed;
+      if (record) return { record, incomplete };
+      if (failure) throw failure;
+      return { record: null, incomplete };
+    };
 
     // The remaining searches are looser, so they need the song's length to confirm a match.
     if (!durationSec || failure) return finish();
@@ -237,14 +287,22 @@ export function createLyricsProvider({
     //    subtitle) — accepted only when the artist and album match and the length is
     //    within 2 s. Each artist is searched with the album name from the same source
     //    (native with native, English with English), in one script at a time.
+    //    This is the loosest search, so the backup source is asked first.
+    const other = await askBackup();
+    if (good(other)) return hit(other);
     const pairs = [
       [track.artists?.[0], track.album],
       [en?.artists?.[0], en?.album],
     ].filter(([a, b]) => a && b);
     const albums = unique(pairs.map(([, b]) => b));
     const queries = unique(pairs.flatMap(([a, b]) => spellers.map((f) => `${f(a)} ${f(b)}`))).slice(0, 4);
+    // Another song on the same album can easily be the same length. When this song's words
+    // are already known (plain lyrics, or a different-length version), a record found here
+    // must have the same words — it is then only wanted for its timing.
+    const known = fallback || far;
+    const sameSong = (r) => !known || sameLyrics(known, r, fold);
     for (const q of queries) {
-      const best = pickBest(candidates(await req('/api/search', { q })), {
+      const best = pickBest(candidates(await req('/api/search', { q })).filter(sameSong), {
         durationSec,
         artist: artistNames,
         album: albums,

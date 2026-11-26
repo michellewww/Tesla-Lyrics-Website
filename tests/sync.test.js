@@ -310,3 +310,93 @@ test('pausing in the car drops a late-start offset', () => {
   h.report({ trackId: 'b', progressMs: 12_000 });
   assert.ok(Math.abs(h.sync.position() - 12_000) < 300, String(h.sync.position()));
 });
+
+// A skip on the car's own controls: Spotify hears about it late and counts the new song
+// from then, and nothing shows when it really happened. The delay measured at song ends
+// is reused for it.
+test('a car skip is timed with the delay measured when a song last ended', () => {
+  const h = harness();
+  followOn(h); // B really started at 30 s; Spotify heard 5 s late
+  for (let i = 37; i <= 50; i++) {
+    h.t = i * 1000;
+    h.report({ trackId: 'b', progressMs: h.t - 35_000 });
+  }
+  assert.equal(h.sync.usualLateStart, 5000);
+  // Skip to C at t = 50 s; Spotify keeps reporting B until 55 s, then counts C from 55 s.
+  for (let i = 51; i <= 55; i++) {
+    h.t = i * 1000;
+    h.report({ trackId: 'b', progressMs: h.t - 35_000 });
+  }
+  for (let i = 56; i <= 70; i++) {
+    h.t = i * 1000;
+    h.report({ trackId: 'c', progressMs: h.t - 55_000 + noise(i) });
+    const truth = h.t - 50_000;
+    assert.ok(Math.abs(h.sync.position() - truth) < 600, `at ${h.t}: ${h.sync.position()} vs ${truth}`);
+  }
+  // Spotify catches up with the truth later: no move.
+  for (let i = 71; i <= 80; i++) {
+    h.t = i * 1000;
+    h.report({ trackId: 'c', progressMs: h.t - 50_000 });
+  }
+  assert.ok(Math.abs(h.sync.position() - (h.t - 50_000)) < 600);
+  assert.deepEqual(h.jumpsBack.filter((j) => j.t > 56_000), []);
+});
+
+test('a skip sent from this page is not shifted: Spotify hears of it at once', () => {
+  const h = harness();
+  followOn(h);
+  h.t = 50_000;
+  h.sync.expectChange();
+  h.t = 51_000;
+  h.report({ trackId: 'c', progressMs: 800 });
+  assert.equal(h.sync.position(), 800);
+});
+
+test('a player that reports on time gets no shift after a skip', () => {
+  const h = harness();
+  for (let i = 0; i <= 30; i++) {
+    h.t = i * 1000;
+    h.report({ trackId: 'a', progressMs: h.t, durationMs: 30_000 });
+  }
+  h.t = 31_000;
+  h.report({ trackId: 'b', progressMs: 1000 }); // on time
+  h.t = 40_000;
+  h.report({ trackId: 'c', progressMs: 500 });
+  assert.equal(h.sync.position(), 500);
+});
+
+test('delays remembered from an earlier visit are used and new ones handed back', () => {
+  let t = 0;
+  let saved = null;
+  const sync = new PlaybackSync({ now: () => t, lateStarts: [3000, 3200, 'x', -5], onLateStart: (l) => (saved = l) });
+  const rep = (r) => sync.report({ sampledAt: t, isPlaying: true, durationMs: 200_000, ...r });
+  rep({ trackId: 'a', progressMs: 50_000 }); // the first song seen is never shifted
+  assert.equal(sync.position(), 50_000);
+  t = 9000;
+  rep({ trackId: 'b', progressMs: 400 });
+  assert.equal(sync.position(), 3500);
+  // A song picked up part-way was not a plain skip.
+  t = 12_000;
+  rep({ trackId: 'c', progressMs: 90_000 });
+  assert.equal(sync.position(), 90_000);
+  assert.equal(saved, null);
+});
+
+test('Spotify catching up early in a song teaches the delay for the next skip', () => {
+  const h = harness();
+  h.report({ trackId: 'a', progressMs: 50_000 });
+  // Skip at 10 s, heard at 13 s: lyrics are 3 s late until Spotify catches up at 20 s.
+  for (let i = 14; i <= 19; i++) {
+    h.t = i * 1000;
+    h.report({ trackId: 'b', progressMs: h.t - 13_000 });
+  }
+  for (let i = 20; i <= 25; i++) {
+    h.t = i * 1000;
+    h.report({ trackId: 'b', progressMs: h.t - 10_000 });
+  }
+  assert.ok(Math.abs(h.sync.position() - 15_000) < 300);
+  assert.equal(h.sync.usualLateStart, 3000);
+  h.t = 44_000; // skip at 40 s, heard at 43 s
+  h.report({ trackId: 'c', progressMs: 1000 });
+  assert.equal(h.sync.position(), 4000);
+});

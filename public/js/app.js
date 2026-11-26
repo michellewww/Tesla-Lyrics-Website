@@ -2,6 +2,7 @@ import { CONFIG } from './config.js';
 import { AuthError, createAuth, redirectUriFor } from './auth.js';
 import { ApiError, AuthRequiredError, RateLimitError, createSpotify } from './spotify.js';
 import { createLyricsProvider } from './lyrics.js';
+import { createQQLyrics } from './qq.js';
 import { PlaybackSync } from './sync.js';
 import { findActiveIndex, withIntro } from './lrc.js';
 import { guessLang, lineSegments, segmentProgress } from './karaoke.js';
@@ -59,7 +60,21 @@ const TOOLBAR_OFFSET_STEP = 250;
 
 const settings = loadSettings(storage);
 // Decides which of Spotify's (late, noisy) position reports to follow; see sync.js.
-const clock = new PlaybackSync();
+const KEY_LATE_STARTS = 'sync:late_starts';
+const clock = new PlaybackSync({
+  lateStarts: DEMO ? [] : readLateStarts(),
+  onLateStart: (list) => !DEMO && storage.setItem(KEY_LATE_STARTS, JSON.stringify(list)),
+});
+
+// How late this player's Spotify has reported new songs before (see sync.js).
+function readLateStarts() {
+  try {
+    const list = JSON.parse(storage.getItem(KEY_LATE_STARTS));
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
 const state = {
   player: null,
   lyricsProvider: null,
@@ -160,7 +175,13 @@ async function boot() {
   }
 
   state.player = createSpotify({ auth: state.auth });
-  state.lyricsProvider = createLyricsProvider({ base: CONFIG.lrclibBase, client: CONFIG.lrclibClient, storage });
+  const qq = CONFIG.lyricsRelay ? createQQLyrics({ relay: CONFIG.lyricsRelay }) : null;
+  state.lyricsProvider = createLyricsProvider({
+    base: CONFIG.lrclibBase,
+    client: CONFIG.lrclibClient,
+    storage,
+    backup: qq ? (track, opts) => qq.find(track, opts) : null,
+  });
   showScreen('player');
   renderAllText();
   startPolling();
@@ -828,6 +849,9 @@ function seekTo(ms) {
 
 function skip(dir) {
   if (!state.player) return;
+  // Spotify hears about a skip from this page at once, unlike one on the car's controls.
+  // (The demo's fake player is the "car", so there it counts as a car skip.)
+  if (!DEMO) clock.expectChange();
   control(() => (dir > 0 ? state.player.next() : state.player.previous()), null, 400);
 }
 

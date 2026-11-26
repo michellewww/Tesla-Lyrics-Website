@@ -405,3 +405,36 @@ test('switching away and back shares one lookup, so an older one cannot overwrit
   assert.equal(a, b);
   assert.equal(fetchFn.calls.length, 1);
 });
+
+// Regression: "Still Moving Under Gunfire" has only plain lyrics on LRCLIB; the artist +
+// album search then picked another song from the album that happened to be the same length.
+test('artist + album search does not replace known plain lyrics with another song of the same length', async () => {
+  const track = { id: 'g1', name: 'Gunfire Song', artists: ['林俊傑'], album: '100天', durationMs: 244_000 };
+  const plain = { id: 1, trackName: 'Gunfire Song', artistName: '林俊傑', albumName: '100天', duration: 244, plainLyrics: 'line one\nline two\nline three' };
+  const other = { id: 2, trackName: '另一首', artistName: '林俊傑', albumName: '100天', duration: 244, syncedLyrics: '[00:01.00]說感覺\n[00:05.00]還有味覺' };
+  const fetchFn = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get') return jsonResponse(200, plain);
+    if (u.searchParams.get('q')?.includes('100天')) return jsonResponse(200, [other]);
+    return jsonResponse(200, [plain]);
+  });
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
+  const r = await p.get(track);
+  assert.equal(r.status, 'plain');
+  assert.equal(r.lines[0].text, 'line one');
+});
+
+test('artist + album search may add timing when the words are the same song', async () => {
+  const track = { id: 'g2', name: 'Gunfire Song', artists: ['林俊傑'], album: '100天', durationMs: 244_000 };
+  const plain = { id: 1, trackName: 'Gunfire Song', artistName: '林俊傑', albumName: '100天', duration: 244, plainLyrics: 'Line one\nLine two\nLine three' };
+  const timed = { id: 2, trackName: '槍火之歌', artistName: '林俊傑', albumName: '100天', duration: 245, syncedLyrics: '[00:01.00]line one\n[00:05.00]line two\n[00:09.00]line three' };
+  const fetchFn = fakeFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/get') return jsonResponse(200, plain);
+    if (u.searchParams.get('q')?.includes('100天')) return jsonResponse(200, [timed]);
+    return jsonResponse(200, [plain]);
+  });
+  const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
+  const r = await p.get(track);
+  assert.equal(r.status, 'synced');
+});

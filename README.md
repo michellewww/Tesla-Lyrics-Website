@@ -19,7 +19,7 @@ no server and no client secret.
 
   The looser searches are accepted only when the song's length matches (±3 s for a title match, ±2 s plus a matching
   album otherwise). Synced lyrics are preferred, and plain lyrics are shown if that's all LRCLIB has.
-- **Line sync that stays smooth.** It polls Spotify every second while music plays and interpolates the position
+- **Line sync that stays smooth.** It polls Spotify twice a second while music plays and interpolates the position
   locally every frame.
 - **Tap any line to jump there.** Also play/pause, previous/next, and a seek bar.
 - **Adjustments:** text size, line spacing, timing offset (±0.1 s / ±0.5 s steps), left or centered alignment, karaoke on/off,
@@ -61,6 +61,8 @@ LRCLIB ──(get → search → free-text search)──▶ lyrics ────�
 | `public/js/clock.js` | Interpolates playback position between polls |
 | `public/js/sync.js` | Decides which of Spotify's late, noisy position reports to follow (no jumping back) |
 | `public/js/lyrics.js` | LRCLIB lookup with fallbacks, picks Lyricsfile → LRC → plain, caches in localStorage |
+| `public/js/qq.js` | Optional backup: timed lyrics from QQ Music through the relay, with credit lines removed |
+| `relay/qq-lyrics-worker.js` | The relay (a Cloudflare Worker) that passes lyric requests on to QQ Music; not part of the site |
 | `public/js/lrc.js` | LRC parser (multi-timestamp, `[offset]`, enhanced word tags, translations), Lyricsfile parser |
 | `public/js/yaml.js` | Tiny YAML-subset parser for LRCLIB's Lyricsfile |
 | `public/js/karaoke.js` | Splits a line into timed segments (exact or estimated) for the character fill |
@@ -102,6 +104,24 @@ Pick one:
 In the repo go to **Settings → Pages → Build and deployment → Source** and choose **GitHub Actions**. Every push to `main`
 then runs the tests and deploys the `public/` folder (`.github/workflows/deploy.yml`).
 
+### 4. QQ Music backup (optional)
+
+LRCLIB has no timed lyrics for some songs, mostly Chinese ones. QQ Music usually does, but its servers don't let a web
+page read their replies directly, so the page asks through a small relay that you run yourself on Cloudflare's free
+plan (100,000 requests a day; no card needed).
+
+1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com/).
+2. Go to **Workers & Pages → Create → Start with Hello World!**, give it a name such as `qq-lyrics`, and deploy.
+3. Open **Edit code**, replace everything with the contents of [`relay/qq-lyrics-worker.js`](relay/qq-lyrics-worker.js),
+   and press **Deploy**.
+4. Copy the Worker's address (like `https://qq-lyrics.yourname.workers.dev`) into `lyricsRelay` in
+   [`public/js/config.js`](public/js/config.js), then commit and push.
+
+To check the relay, open `<its address>/search?q=林俊杰` in a browser: it should show a page of JSON. QQ Music is asked
+only when LRCLIB has no timed lyrics for a song; a match needs the same title, the same artist (or album, when the
+artist's name is in another language) and a length within 3 seconds. These QQ Music addresses are unofficial, so they
+may stop working without notice — the app then simply shows what LRCLIB has.
+
 ## Using it in a Tesla
 
 1. Open the car's browser and go to the site URL. Bookmark it, or add it to the home screen if your software has that.
@@ -129,6 +149,8 @@ Spotify is stored "on the website".
   only for that calculation in the browser. If you decline, it isn't asked again for a month.
 - **LRCLIB sees the song name.** To find lyrics, the browser sends the track title, artist, album and duration to
   lrclib.net. Nothing else is sent, and nothing identifies you.
+- **With the QQ Music backup on,** the title and artist of songs LRCLIB has no timed lyrics for are also sent to your
+  relay on Cloudflare and from there to QQ Music. Nothing identifies you, and the relay stores nothing.
 - **Anyone using that device is logged in as you.** The login is remembered in that browser (for example the car).
   Use ⚙️ → **Log out of Spotify** to remove it.
 
