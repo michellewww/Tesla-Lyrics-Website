@@ -27,8 +27,11 @@ export class ApiError extends Error {
   }
 }
 
-/** A Spotify track/episode object in the shape the app uses (null for anything else). */
-export function normalizeItem(item) {
+/** Convert a currently-playing response into the shape the app uses. */
+export function normalizePlayback(data, sampledAt) {
+  if (!data) return { active: false, isPlaying: false, type: null, track: null, progressMs: 0, sampledAt };
+  const type = data.currently_playing_type || (data.item?.type ?? null);
+  const item = data.item;
   let track = null;
   if (item && item.type === 'track') {
     const images = item.album?.images || [];
@@ -56,14 +59,6 @@ export function normalizeItem(item) {
       isEpisode: true,
     };
   }
-  return track;
-}
-
-/** Convert a currently-playing response into the shape the app uses. */
-export function normalizePlayback(data, sampledAt) {
-  if (!data) return { active: false, isPlaying: false, type: null, track: null, progressMs: 0, sampledAt };
-  const type = data.currently_playing_type || (data.item?.type ?? null);
-  const track = normalizeItem(data.item);
   return {
     active: true,
     isPlaying: Boolean(data.is_playing),
@@ -75,24 +70,19 @@ export function normalizePlayback(data, sampledAt) {
 }
 
 export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a), now = () => performance.now() }) {
-  let fastestRoundTrip = Infinity; // ms; the best estimate of plain network latency
-
-  /** `timing`, if given, receives when the request went out and when the response arrived. */
-  async function api(method, path, { query, headers, timing } = {}, retried = false) {
+  async function api(method, path, { query, headers } = {}, retried = false) {
     const token = await auth.getAccessToken();
     if (!token) throw new AuthRequiredError();
     const qs = query ? `?${new URLSearchParams(query)}` : '';
-    if (timing) timing.sent = now();
     const res = await fetchFn(`${API}${path}${qs}`, {
       method,
       headers: { ...headers, Authorization: `Bearer ${token}` },
     });
-    if (timing) timing.received = now();
 
     if (res.status === 401 && !retried) {
       const fresh = await auth.refresh();
       if (!fresh) throw new AuthRequiredError();
-      return api(method, path, { query, headers, timing }, true);
+      return api(method, path, { query, headers }, true);
     }
     if (res.status === 401) throw new AuthRequiredError();
     if (res.status === 429) {
@@ -114,16 +104,11 @@ export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a)
 
   return {
     async nowPlaying() {
-      const timing = {};
-      const data = await api('GET', '/me/player/currently-playing', { query: { additional_types: 'episode' }, timing });
-      // Spotify measures progress_ms just before it answers, so about half a *plain* round
-      // trip before the response arrives. Only the request itself is timed (not a token
-      // refresh), and the fastest round trip seen stands in for the network latency: a
-      // first request also pays for connection setup, which would make the position look
-      // older than it is and the lyrics lag after a page load.
-      const roundTrip = Math.max(0, timing.received - timing.sent);
-      fastestRoundTrip = Math.min(fastestRoundTrip, roundTrip);
-      return normalizePlayback(data, timing.received - fastestRoundTrip / 2);
+      const t0 = now();
+      const data = await api('GET', '/me/player/currently-playing', { query: { additional_types: 'episode' } });
+      const t1 = now();
+      // progress_ms was measured roughly halfway through the round trip.
+      return normalizePlayback(data, (t0 + t1) / 2);
     },
     /**
      * The playing track's names in English. Spotify localises names (notably Chinese,
@@ -136,23 +121,6 @@ export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a)
       if (!item || item.type !== 'track' || item.id !== trackId) return null;
       return { name: item.name, artists: (item.artists || []).map((a) => a.name), album: item.album?.name || '' };
     },
-    /**
-     * What plays after the current track, per Spotify's queue, plus the repeat mode (with
-     * "repeat one" the same track comes back). Car devices report track changes to
-     * Spotify late, so the app uses this to switch to the next song on time.
-     */
-    async upNext() {
-      const [queue, player] = await Promise.all([
-        api('GET', '/me/player/queue'),
-        api('GET', '/me/player').catch(() => null),
-      ]);
-      return {
-        currentId: queue?.currently_playing?.id || null,
-        next: normalizeItem(queue?.queue?.[0]),
-        repeat: player?.repeat_state || 'off',
-      };
-    },
-
     /** The Spotify account this app is signed in to (its display name). */
     async profile() {
       const me = await api('GET', '/me');

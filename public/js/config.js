@@ -14,13 +14,11 @@ export const CONFIG = {
   ],
 
   // How often to ask Spotify what is playing. Between polls the playback position
-  // is interpolated locally, so lyrics stay smooth. Faster polling notices song changes
-  // sooner; each request counts toward the Spotify app's rate limit (shared by everyone
-  // using this Client ID), and a 429 makes the app back off for as long as Spotify asks.
+  // is interpolated locally, so lyrics stay smooth.
   pollMs: {
-    playing: 1000,
-    paused: 2000,
-    idle: 3000,
+    playing: 2000,
+    paused: 5000,
+    idle: 5000,
     hidden: 15000,
   },
 

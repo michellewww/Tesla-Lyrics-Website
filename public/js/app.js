@@ -56,10 +56,6 @@ const els = {
 const DEMO = new URLSearchParams(location.search).has('demo');
 const KEY_CLIENT_ID = 'spotify:client_id';
 const TOOLBAR_OFFSET_STEP = 250;
-// Car devices (Tesla's Spotify) tell Spotify's servers about changes a few seconds late,
-// so the app's own predictions (next song at the end of this one, the line you tapped)
-// win over a stale report for up to this long.
-const STALE_GRACE_MS = 20_000;
 
 const settings = loadSettings(storage);
 const clock = new PlaybackClock();
@@ -93,11 +89,6 @@ const state = {
   artFront: null,
   loginMessage: null,
   accountName: null, // the Spotify account this app is signed in to
-  upNext: null, // { forId, track, refreshed }: what Spotify's queue says plays after the current track
-  upNextTimer: 0,
-  prediction: null, // { fromId, toId, at }: switched to the next song before Spotify reported it
-  pendingSeek: null, // { trackId, target, at }: a tapped line Spotify hasn't confirmed yet
-  noRewind: null, // track id whose start we timed ourselves: don't pull it back for late reports
 };
 
 let theme;
@@ -127,9 +118,7 @@ async function boot() {
   bindUi();
 
   if (DEMO) {
-    // ?demo&lag=5 makes the demo report changes 5 s late, like a car's Spotify.
-    const lagSec = Number(new URLSearchParams(location.search).get('lag'));
-    const demo = createDemo({ reportLagMs: Number.isFinite(lagSec) && lagSec > 0 ? lagSec * 1000 : 0 });
+    const demo = createDemo();
     state.player = demo.player;
     state.lyricsProvider = demo.lyrics;
     document.body.classList.add('is-demo');
@@ -349,16 +338,7 @@ function setConnection(ok) {
   els.conn.hidden = ok || state.failures < 2;
 }
 
-function applyPlayback(pb, { predicted = false } = {}) {
-  const now = performance.now();
-  // We already moved on to the next song; Spotify still reporting the one that ended is
-  // just late news from the car.
-  if (!predicted && state.prediction) {
-    const p = state.prediction;
-    if (pb.track?.id === p.fromId && now - p.at < STALE_GRACE_MS) return;
-    state.prediction = null;
-  }
-
+function applyPlayback(pb) {
   state.active = pb.active;
   state.type = pb.type;
   state.isPlaying = pb.isPlaying;
@@ -366,32 +346,7 @@ function applyPlayback(pb, { predicted = false } = {}) {
   const track = pb.track;
   if ((track?.id ?? null) !== (state.track?.id ?? null)) setTrack(track);
 
-  // A tapped line: keep showing it until Spotify reports a position that agrees.
-  let keepPosition = false;
-  if (!predicted && state.pendingSeek) {
-    const ps = state.pendingSeek;
-    if (track?.id !== ps.trackId || now - ps.at > STALE_GRACE_MS) {
-      state.pendingSeek = null;
-    } else {
-      const expected = ps.target + (pb.isPlaying ? pb.sampledAt - ps.at : 0);
-      if (Math.abs(pb.progressMs - expected) > 3000) keepPosition = true;
-      else state.pendingSeek = null;
-    }
-  }
-
-  // We started this song ourselves at the moment the last one ended. The car tells Spotify
-  // about the new song late, so Spotify counts its position from then and reports it a
-  // few seconds behind; never pull the lyrics back for that. Reports ahead of us still
-  // apply, and a big rewind (> 6 s, e.g. a seek) ends the rule.
-  if (!predicted && !keepPosition && track && state.noRewind === track.id) {
-    const behind = clock.position(pb.sampledAt) - pb.progressMs;
-    if (behind > 0 && behind < 6000) keepPosition = true;
-    else if (behind >= 6000) state.noRewind = null;
-  }
-
-  if (track && keepPosition) {
-    if (clock.playing !== pb.isPlaying) clock.setPlaying(pb.isPlaying);
-  } else if (track) {
+  if (track) {
     clock.sync({
       trackId: track.id,
       progressMs: pb.progressMs,
@@ -411,11 +366,6 @@ function applyPlayback(pb, { predicted = false } = {}) {
 function setTrack(track) {
   state.track = track;
   state.lastSecond = -1;
-  if (state.upNext?.forId !== track?.id) state.upNext = null;
-  if (state.noRewind !== track?.id) state.noRewind = null;
-  clearTimeout(state.upNextTimer);
-  // Ask Spotify's queue what comes next (once the change has settled) and fetch its lyrics.
-  if (track && !track.isEpisode && state.player?.upNext) state.upNextTimer = setTimeout(() => prefetchUpNext(track), 3000);
   renderTrackText();
   els.tDur.textContent = formatTime(track?.durationMs ?? 0);
   // The animation loop only runs the bar while something plays, so reset it here.
@@ -708,42 +658,6 @@ function renderAllText() {
 
 // ---------- animation loop ----------
 
-/**
- * Learn what Spotify will play after `track` and fetch its lyrics now, so the switch at the
- * end of the song is instant (car devices report the change to Spotify a few seconds late).
- */
-async function prefetchUpNext(track, attempt = 0) {
-  if (state.track !== track) return;
-  try {
-    const up = await state.player.upNext();
-    if (state.track !== track) return;
-    if (up.currentId !== track.id) {
-      // Spotify hasn't caught up with this track yet; look again shortly.
-      if (attempt < 3) state.upNextTimer = setTimeout(() => prefetchUpNext(track, attempt + 1), 5000);
-      return;
-    }
-    // "Repeat one" plays this track again: nothing to predict.
-    state.upNext = up.next && up.repeat !== 'track' ? { forId: track.id, track: up.next, refreshed: attempt > 0 } : null;
-    const next = state.upNext?.track;
-    if (next && !next.isEpisode) state.lyricsProvider.get(next).catch(() => {});
-  } catch {
-    /* best effort: without it, the next song just shows up when Spotify reports it */
-  }
-}
-
-/** The current song has reached its end: switch to the queued next song right away. */
-function predictNext() {
-  const next = state.upNext.track;
-  state.prediction = { fromId: state.track.id, toId: next.id, at: performance.now() };
-  state.pendingSeek = null;
-  applyPlayback(
-    { active: true, isPlaying: true, type: next.isEpisode ? 'episode' : 'track', track: next, progressMs: 0, sampledAt: performance.now() },
-    { predicted: true },
-  );
-  state.noRewind = next.id;
-  pollSoon(1500);
-}
-
 function frame() {
   if (!state.running) return;
   requestAnimationFrame(frame);
@@ -751,15 +665,6 @@ function frame() {
 
   const pos = clock.position();
   const dur = state.track.durationMs || 1;
-  // The queue can change while a song plays; refresh what's next shortly before the end.
-  if (state.isPlaying && state.upNext?.forId === state.track.id && !state.upNext.refreshed && dur - pos < 15_000) {
-    state.upNext.refreshed = true;
-    prefetchUpNext(state.track, 1);
-  }
-  if (state.isPlaying && !state.prediction && state.upNext?.forId === state.track.id && pos >= dur - 100) {
-    predictNext();
-    return;
-  }
   const frac = Math.min(1, pos / dur);
   els.barFill.style.transform = `scaleX(${frac})`;
   els.barThumb.style.transform = `translateX(${frac * 100}%)`;
@@ -901,16 +806,7 @@ function seekTo(ms) {
   const target = Math.max(0, Math.min(ms, state.track.durationMs - 500));
   state.followPausedUntil = 0;
   els.recenter.hidden = true;
-  state.pendingSeek = { trackId: state.track.id, target, at: performance.now() };
-  control(
-    () =>
-      state.player.seek(target).catch((e) => {
-        state.pendingSeek = null; // the seek didn't happen; trust Spotify again
-        throw e;
-      }),
-    () => clock.seek(target),
-    900,
-  );
+  control(() => state.player.seek(target), () => clock.seek(target), 900);
 }
 
 function skip(dir) {
