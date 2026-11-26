@@ -88,6 +88,7 @@ const state = {
   running: false,
   artFront: null,
   loginMessage: null,
+  accountName: null, // the Spotify account this app is signed in to
 };
 
 let theme;
@@ -161,6 +162,16 @@ async function boot() {
   renderAllText();
   startPolling();
   if (!isPersistent) toast(t('storage.notSaved'));
+  // Shown on the "Nothing playing" screen: in a Tesla, the car's Spotify may be signed in
+  // to a different account than this app, and then nothing ever shows up here.
+  state.player
+    .profile()
+    .then((name) => {
+      state.accountName = name;
+      renderAccount();
+      renderStatus();
+    })
+    .catch(() => {});
 }
 
 function authMessage(e) {
@@ -591,6 +602,7 @@ function renderStatus() {
     } else {
       title = t('status.nothing');
       text = t('status.nothingText');
+      if (state.accountName) text += ` ${t('status.nothingAccount', { name: state.accountName })}`;
     }
   } else if (s === 'episode') {
     title = t('status.podcast');
@@ -873,8 +885,10 @@ function bindUi() {
   // Settings sheet.
   $('btn-menu').addEventListener('click', () => {
     syncPanel();
+    renderAccount();
     els.menu.showModal();
   });
+  $('check-connection')?.addEventListener('click', checkConnection);
   els.menu.addEventListener('click', (e) => {
     if (e.target === els.menu) els.menu.close(); // tap outside the sheet
   });
@@ -965,6 +979,60 @@ function bindUi() {
     else if (e.key === ']') changeOffset(100);
     else if (e.key === '[') changeOffset(-100);
   });
+}
+
+function renderAccount() {
+  const el = $('account-name');
+  if (el) el.textContent = state.accountName || '—';
+}
+
+/** Settings → "Check Spotify connection": show what Spotify itself reports for this account. */
+async function checkConnection() {
+  const box = $('connection-report');
+  if (!box || !state.player?.connectionInfo) return;
+  const para = (text, cls) => {
+    const p = document.createElement('p');
+    p.textContent = text; // names come from Spotify: always plain text, never HTML
+    if (cls) p.className = cls;
+    return p;
+  };
+  box.hidden = false;
+  box.replaceChildren(para(t('conn.checking')));
+  try {
+    const info = await state.player.connectionInfo();
+    if (info.account) {
+      state.accountName = info.account;
+      renderAccount();
+    }
+    const nodes = [];
+    if (info.account) nodes.push(para(t('conn.account', { name: info.account })));
+    nodes.push(
+      para(
+        info.nowPlaying
+          ? `${t('conn.nowPlaying', { track: info.nowPlaying })}${info.playingOn ? ` ${t('conn.onDevice', { device: info.playingOn })}` : ''}`
+          : t('conn.nothingPlaying'),
+      ),
+    );
+    nodes.push(para(t('conn.devices')));
+    const list = document.createElement('ul');
+    const item = (text) => {
+      const li = document.createElement('li');
+      li.textContent = text;
+      return li;
+    };
+    if (!info.devices.length) list.append(item(t('conn.noDevices')));
+    for (const d of info.devices) {
+      const tags = [d.type, d.active && t('conn.active'), d.restricted && t('conn.restricted'), d.privateSession && t('conn.private')];
+      list.append(item(`${d.name} (${tags.filter(Boolean).join(' · ')})`));
+    }
+    nodes.push(list);
+    if (info.error) nodes.push(para(t('conn.error', { msg: info.error.message })));
+    nodes.push(para(t('conn.carHint'), 'note'));
+    box.replaceChildren(...nodes);
+  } catch (e) {
+    if (e instanceof AuthRequiredError) return showLogin(t('err.sessionEnded'));
+    box.replaceChildren(para(t('conn.error', { msg: e.message })));
+  }
 }
 
 function formatTime(ms) {

@@ -126,3 +126,40 @@ test('englishNames asks Spotify in English and ignores a track that changed mean
   assert.deepEqual(names, { name: 'Song', artists: ['Artist A', 'Artist B'], album: 'Album' });
   assert.equal(await sp.englishNames('other-track'), null);
 });
+
+test('profile and connectionInfo report the account, devices and what is playing', async () => {
+  const fetchFn = fakeFetch((url) => {
+    const path = new URL(url).pathname;
+    if (path === '/v1/me') return jsonResponse(200, { id: 'u1', display_name: 'Michelle' });
+    if (path === '/v1/me/player') return jsonResponse(200, { ...TRACK_RESPONSE, device: { name: 'MacBook', type: 'Computer' } });
+    if (path === '/v1/me/player/devices') {
+      return jsonResponse(200, { devices: [
+        { name: 'MacBook', type: 'Computer', is_active: true, is_restricted: false, is_private_session: false },
+        { name: 'Model Y', type: 'Automobile', is_active: false, is_restricted: true, is_private_session: true },
+      ] });
+    }
+    return jsonResponse(404, {});
+  });
+  const sp = createSpotify({ auth: fakeAuth(), fetchFn });
+  assert.equal(await sp.profile(), 'Michelle');
+  const info = await sp.connectionInfo();
+  assert.equal(info.account, 'Michelle');
+  assert.equal(info.nowPlaying, 'Song – Artist A, Artist B');
+  assert.equal(info.playingOn, 'MacBook');
+  assert.deepEqual(info.devices[1], { name: 'Model Y', type: 'Automobile', active: false, restricted: true, privateSession: true });
+  assert.equal(info.error, null);
+});
+
+test('connectionInfo copes with nothing playing and partial failures', async () => {
+  const fetchFn = fakeFetch((url) => {
+    const path = new URL(url).pathname;
+    if (path === '/v1/me') return jsonResponse(200, { id: 'u1', display_name: 'Michelle' });
+    if (path === '/v1/me/player') return jsonResponse(204);
+    return jsonResponse(500, { error: { status: 500, message: 'boom' } });
+  });
+  const info = await createSpotify({ auth: fakeAuth(), fetchFn }).connectionInfo();
+  assert.equal(info.account, 'Michelle');
+  assert.equal(info.nowPlaying, null);
+  assert.deepEqual(info.devices, []);
+  assert.ok(info.error);
+});

@@ -243,6 +243,14 @@
       </div>
 
       <h3 data-i18n="settings.account">Account</h3>
+      <div class="row spotify-only">
+        <span data-i18n="settings.spotifyAccount">Spotify account</span>
+        <span id="account-name" class="value"></span>
+      </div>
+      <div class="menu-actions spotify-only">
+        <button id="check-connection" type="button" class="btn" data-i18n="settings.checkConnection">Check Spotify connection</button>
+      </div>
+      <div id="connection-report" class="report" aria-live="polite" hidden></div>
       <div class="menu-actions">
         <button id="menu-logout" type="button" class="btn" data-i18n="settings.logout">Log out of Spotify</button>
         <button id="menu-exit-demo" type="button" class="btn" data-i18n="settings.exitDemo" hidden>Exit demo</button>

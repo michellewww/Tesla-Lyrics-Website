@@ -593,6 +593,12 @@ dialog.sheet::backdrop { background: rgba(0, 0, 0, 0.4); }
 .sw-gold { background: var(--hl-gold); }
 .sw-pink { background: var(--hl-pink); }
 
+body.is-demo .spotify-only { display: none; }
+.report { margin: 4px 0 10px; padding: 12px 14px; border-radius: 12px; background: var(--surface); font-size: 14.5px; line-height: 1.5; }
+.report p { margin: 0 0 6px; }
+.report ul { margin: 0 0 8px; padding-left: 1.2em; }
+.report .note { color: var(--fg-2); }
+
 /* ---------- toast ---------- */
 
 .toast {

@@ -121,6 +121,42 @@ export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a)
       if (!item || item.type !== 'track' || item.id !== trackId) return null;
       return { name: item.name, artists: (item.artists || []).map((a) => a.name), album: item.album?.name || '' };
     },
+    /** The Spotify account this app is signed in to (its display name). */
+    async profile() {
+      const me = await api('GET', '/me');
+      return me?.display_name || me?.id || null;
+    },
+
+    /**
+     * What Spotify itself reports for this account — for the "Check Spotify connection"
+     * button. In a Tesla, the car's Spotify may be signed in to a different account
+     * (e.g. Tesla's built-in one), in which case the car won't be listed here.
+     */
+    async connectionInfo() {
+      const settle = (p) => p.then((value) => ({ value }), (error) => ({ error }));
+      const [me, player, devices] = await Promise.all([
+        settle(api('GET', '/me')),
+        settle(api('GET', '/me/player', { query: { additional_types: 'episode' } })),
+        settle(api('GET', '/me/player/devices')),
+      ]);
+      const error = [me, player, devices].find((r) => r.error)?.error || null;
+      if (error instanceof AuthRequiredError) throw error;
+      const item = player.value?.item;
+      return {
+        account: me.value?.display_name || me.value?.id || null,
+        nowPlaying: item ? `${item.name} – ${(item.artists || [item.show]).map((a) => a?.name).filter(Boolean).join(', ')}` : null,
+        isPlaying: Boolean(player.value?.is_playing),
+        playingOn: player.value?.device?.name || null,
+        devices: (devices.value?.devices || []).map((d) => ({
+          name: d.name,
+          type: d.type,
+          active: Boolean(d.is_active),
+          restricted: Boolean(d.is_restricted),
+          privateSession: Boolean(d.is_private_session),
+        })),
+        error,
+      };
+    },
     play: () => api('PUT', '/me/player/play'),
     pause: () => api('PUT', '/me/player/pause'),
     next: () => api('POST', '/me/player/next'),
