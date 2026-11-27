@@ -61,6 +61,7 @@ const TOOLBAR_OFFSET_STEP = 250;
 
 const settings = loadSettings(storage);
 // Decides which of Spotify's (late, noisy) position reports to follow; see sync.js.
+const HAS_CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const KEY_LATE_STARTS = 'sync:late_starts';
 const clock = new PlaybackSync({
   lateStarts: DEMO ? [] : readLateStarts(),
@@ -187,7 +188,7 @@ async function boot() {
     storage,
     backup: others.length ? (track, opts) => firstTimed(others, track, opts) : null,
     backupFirst: CONFIG.chineseSourcesFirst ? 'cjk' : false,
-    cacheTag: `${CONFIG.lyricsRelay ? 'q' : ''}${CONFIG.neteaseApi ? 'n' : ''}${CONFIG.chineseSourcesFirst ? '1' : ''}v4`,
+    cacheTag: `${CONFIG.lyricsRelay ? 'q' : ''}${CONFIG.neteaseApi ? 'n' : ''}${CONFIG.chineseSourcesFirst ? '1' : ''}v6`,
   });
   showScreen('player');
   renderAllText();
@@ -536,8 +537,12 @@ async function loadLyrics(track) {
   setLyrics({ status: 'loading', lines: [] });
   try {
     const result = await state.lyricsProvider.get(track, {
-      // Spotify localises names by browser language; on a miss, retry with English names.
-      alternates: state.player.englishNames ? () => state.player.englishNames(track.id) : undefined,
+      // Spotify shows names in the browser's language. The lyric sources may file the song
+      // under the other one, so its names are also asked for in English (when shown in
+      // Chinese/Japanese/Korean) or in Chinese (when shown in Latin letters).
+      alternates: state.player.namesIn
+        ? () => state.player.namesIn(track.id, HAS_CJK.test([track.name, ...track.artists, track.album].join(' ')) ? 'en' : 'zh-TW')
+        : undefined,
     });
     const shown = await presentLyrics(result, track);
     if (seq !== state.lyricsSeq) return;

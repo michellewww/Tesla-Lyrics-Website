@@ -12,13 +12,15 @@ no server and no client secret.
 - **Karaoke-style, word-by-word highlighting** when the lyrics have real word timings (LRCLIB's "Lyricsfile" format
   or enhanced LRC). Lines without word timing are highlighted as a whole line; nothing is guessed.
 - **Finds lyrics in any language or script.** If the exact lookup misses, it keeps trying:
-  - with Spotify's English names (Spotify shows 李荣浩 or "Ronghao Li" depending on the browser's language);
-  - by title alone, in Simplified and Traditional (Taiwan and Hong Kong forms);
-  - by artist + album.
+  - under the song's names in the other language. Spotify shows 李荣浩 or "Ronghao Li", 林俊傑 or "JJ Lin",
+    depending on the browser's language; the app asks Spotify for both (English and Chinese) and searches and checks
+    every source under either, in Simplified and Traditional;
+  - by title alone, in Simplified and Traditional (Taiwan and Hong Kong forms).
 
-  The looser searches are accepted only when the song's length matches (±3 s for a title match, ±2 s plus a matching
-  album otherwise). Synced lyrics are preferred, and plain lyrics are shown if that's all LRCLIB has.
-- **Line sync that stays smooth.** It polls Spotify twice a second while music plays and interpolates the position
+  Every LRCLIB result must have the same song name, the same artist and (for the title-only search) a length within
+  2 s — a near miss is not shown, since NetEase can still have the song. Synced lyrics are preferred, and plain
+  lyrics are shown if that's all there is.
+- **Line sync that stays smooth.** It polls Spotify every second while music plays and interpolates the position
   locally every frame.
 - **Tap any line to jump there.** Also play/pause, previous/next, and a seek bar.
 - **Adjustments:** text size, line spacing, timing offset (±0.1 s / ±0.5 s steps), left or centered alignment, karaoke on/off,
@@ -221,8 +223,7 @@ Spotify login locally, register `http://127.0.0.1:5173/` as a redirect URI.
 ## Limitations
 
 - LRCLIB is community-run. Popular songs are well covered, including many Chinese ones, but some songs have no lyrics,
-  or only unsynced ones. The fallback searches only accept a match whose length agrees. Very rarely, a different song
-  on the same album with the same length could still be picked.
+  or only unsynced ones. Only results with the same song name and artist are accepted.
 - Lyrics are matched to a version of the song with the same length (within 2 s). If LRCLIB only has a version a few
   seconds longer or shorter (usually a different intro), the app still shows it but says the timing may be off. Its
   timestamps are built into the lyrics file, so use − / + to adjust. It searches again for a better match a day later.

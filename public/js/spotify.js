@@ -95,13 +95,14 @@ function useNetworkTiming(timing) {
 }
 
 export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a), now = () => performance.now(), timeoutMs = 8000 }) {
-  // After a 429, every request (polls, commands, diagnostics) waits until Spotify's
-  // Retry-After has passed, however it was triggered.
+  // After a 429, background requests (polls, diagnostics) wait until Spotify's Retry-After
+  // has passed. A command the user just tapped (play, pause, skip, seek) is still sent:
+  // refusing it here would make the buttons dead whenever polling had been turned away.
   let blockedUntil = 0;
 
   /** `timing`, if given, receives when the request went out and when the response arrived. */
   async function api(method, path, { query, headers, timing } = {}, retried = false) {
-    if (blockedUntil && now() < blockedUntil) throw new RateLimitError(Math.ceil((blockedUntil - now()) / 1000));
+    if (method === 'GET' && blockedUntil && now() < blockedUntil) throw new RateLimitError(Math.ceil((blockedUntil - now()) / 1000));
     const token = await auth.getAccessToken();
     if (!token) throw new AuthRequiredError();
     const qs = query ? `?${new URLSearchParams(query)}` : '';
@@ -166,7 +167,14 @@ export function createSpotify({ auth, fetchFn = (...a) => globalThis.fetch(...a)
      * the English ones. Returns null if a different track is playing by now.
      */
     async englishNames(trackId) {
-      const data = await api('GET', '/me/player/currently-playing', { headers: { 'Accept-Language': 'en' } });
+      return this.namesIn(trackId, 'en');
+    },
+    /**
+     * The current track's names as Spotify shows them in `language` ('en', 'zh-TW', …).
+     * Returns null if a different track is playing by now.
+     */
+    async namesIn(trackId, language) {
+      const data = await api('GET', '/me/player/currently-playing', { headers: { 'Accept-Language': language } });
       const item = data?.item;
       if (!item || item.type !== 'track' || item.id !== trackId) return null;
       return { name: item.name, artists: (item.artists || []).map((a) => a.name), album: item.album?.name || '' };

@@ -18,10 +18,12 @@ export const CONFIG = {
   // polling means quicker catch-up rather than more jumps. Each request counts toward the
   // Spotify app's rate limit (shared by everyone using this Client ID); on a 429 the app
   // backs off for as long as Spotify asks.
+  // Faster than once a second gets the app turned away by Spotify (429), which also made
+  // the play/skip/seek controls fail, so don't go below 1000 while playing.
   pollMs: {
-    playing: 500,
-    paused: 1000,
-    idle: 2000,
+    playing: 1000,
+    paused: 2000,
+    idle: 3000,
     hidden: 15000,
   },
 

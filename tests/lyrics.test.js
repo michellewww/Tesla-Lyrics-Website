@@ -65,7 +65,7 @@ test('keeps a plain-only exact match if no synced version exists anywhere', asyn
   });
   const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
   assert.equal((await p.get(TRACK)).status, 'plain');
-  assert.equal(fetchFn.calls.length, 5); // get, 2 searches, title-only, artist+album
+  assert.equal(fetchFn.calls.length, 4); // get, 2 searches, title-only
 });
 
 test('results are cached in memory and storage; misses for a day', async () => {
@@ -123,7 +123,7 @@ test('a Chinese-name miss retries with Spotify\'s English names', async () => {
   assert.equal(asked, 1);
 });
 
-test('title-only fallback accepts a close-length match by another artist spelling, not a different song', async () => {
+test('title-only search accepts the artist under its English name, and never another artist', async () => {
   const fetchFn = fakeFetch((url) => {
     const u = new URL(url);
     if (u.pathname === '/api/get') return jsonResponse(404, {});
@@ -136,9 +136,13 @@ test('title-only fallback accepts a close-length match by another artist spellin
     return jsonResponse(200, []);
   });
   const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
-  const r = await p.get(CN_TRACK); // no alternates available (e.g. demo player)
+  const english = async () => ({ name: '对等关系 (feat. 张惠妹)', artists: ['Ronghao Li', 'A-Mei Chang'], album: 'Free Soul' });
+  const r = await p.get(CN_TRACK, { alternates: english });
   assert.equal(r.status, 'synced');
   assert.equal(r.lines[0].text, 'right');
+  // Without the English name there is nothing to confirm the artist with: no match.
+  const blind = createLyricsProvider({ fetchFn, storage: memoryStorage() });
+  assert.equal((await blind.get(CN_TRACK)).status, 'none');
 });
 
 test('title-only fallback rejects matches more than 3 s off', async () => {
@@ -154,14 +158,14 @@ test('title-only fallback rejects matches more than 3 s off', async () => {
   assert.equal((await p.get(CN_TRACK)).status, 'none');
 });
 
-test('Latin-script misses skip the English-names retry but still try title-only and artist+album', async () => {
+test('a Latin-script song with no other names is searched by its own names and by title alone', async () => {
   const fetchFn = fakeFetch((url) => (new URL(url).pathname === '/api/get' ? jsonResponse(404, {}) : jsonResponse(200, [])));
   let asked = 0;
   const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
   await p.get(TRACK, { alternates: async () => (asked++, null) });
-  assert.equal(asked, 0);
+  assert.equal(asked, 1); // asked once, up front, whether it is a Chinese song
   const queries = fetchFn.calls.map((c) => new URL(c.url).searchParams.get('q')).filter(Boolean);
-  assert.deepEqual(queries, ['Song Band', 'Song', 'Band Album']);
+  assert.deepEqual(queries, ['Song Band', 'Song']);
 });
 
 test('a Chinese song filed only under Traditional spellings is found via a Traditional title search', async () => {
@@ -179,7 +183,7 @@ test('a Chinese song filed only under Traditional spellings is found via a Tradi
   assert.equal(r.lines[0].text, 'trad');
 });
 
-test('a song LRCLIB titles in another language is found by artist + album and exact length', async () => {
+test('a same-artist, same-album, same-length record under another title is not taken for the song', async () => {
   const track = { id: 'x', name: '对等关系', artists: ['李荣浩'], album: '纵横四海', durationMs: 327_000 };
   const fetchFn = fakeFetch((url) => {
     const u = new URL(url);
@@ -193,8 +197,7 @@ test('a song LRCLIB titles in another language is found by artist + album and ex
     return jsonResponse(200, []);
   });
   const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
-  const r = await p.get(track);
-  assert.equal(r.lines[0].text, 'right');
+  assert.equal((await p.get(track)).status, 'none');
 });
 
 test('title-only search needs the same song name, and for Latin-script songs the same artist', async () => {
@@ -273,16 +276,6 @@ test('a rate limit mid-search keeps lyrics already found and pauses further requ
   t = 21_000;
   await p.get({ ...TRACK, id: 'third' });
   assert.ok(fetchFn.calls.length > calls);
-});
-
-test('English artist names are searched with the English album name', async () => {
-  const track = { id: 'e', name: '对等关系', artists: ['李荣浩'], album: '纵横四海', durationMs: 327_000 };
-  const fetchFn = fakeFetch((url) => (new URL(url).pathname === '/api/get' ? jsonResponse(404, {}) : jsonResponse(200, [])));
-  const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
-  await p.get(track, { alternates: async () => ({ name: 'Equivalence', artists: ['Ronghao Li'], album: 'Zong Heng Si Hai' }) });
-  const queries = fetchFn.calls.map((c) => new URL(c.url).searchParams.get('q')).filter(Boolean);
-  assert.ok(queries.includes('Ronghao Li Zong Heng Si Hai'), queries.join(' | '));
-  assert.ok(!queries.includes('Ronghao Li 纵横四海'));
 });
 
 test('an interrupted search shows what it found but tries again later', async () => {
@@ -408,7 +401,7 @@ test('switching away and back shares one lookup, so an older one cannot overwrit
 
 // Regression: "Still Moving Under Gunfire" has only plain lyrics on LRCLIB; the artist +
 // album search then picked another song from the album that happened to be the same length.
-test('artist + album search does not replace known plain lyrics with another song of the same length', async () => {
+test('known plain lyrics are not replaced by another song of the same length from the album', async () => {
   const track = { id: 'g1', name: 'Gunfire Song', artists: ['林俊傑'], album: '100天', durationMs: 244_000 };
   const plain = { id: 1, trackName: 'Gunfire Song', artistName: '林俊傑', albumName: '100天', duration: 244, plainLyrics: 'line one\nline two\nline three' };
   const other = { id: 2, trackName: '另一首', artistName: '林俊傑', albumName: '100天', duration: 244, syncedLyrics: '[00:01.00]說感覺\n[00:05.00]還有味覺' };
@@ -424,17 +417,58 @@ test('artist + album search does not replace known plain lyrics with another son
   assert.equal(r.lines[0].text, 'line one');
 });
 
-test('artist + album search may add timing when the words are the same song', async () => {
-  const track = { id: 'g2', name: 'Gunfire Song', artists: ['林俊傑'], album: '100天', durationMs: 244_000 };
-  const plain = { id: 1, trackName: 'Gunfire Song', artistName: '林俊傑', albumName: '100天', duration: 244, plainLyrics: 'Line one\nLine two\nLine three' };
-  const timed = { id: 2, trackName: '槍火之歌', artistName: '林俊傑', albumName: '100天', duration: 245, syncedLyrics: '[00:01.00]line one\n[00:05.00]line two\n[00:09.00]line three' };
-  const fetchFn = fakeFetch((url) => {
+// ---------- the same song under different names ----------
+// Spotify may show a Chinese song in English ("JJ Lin"), Traditional (林俊傑) or
+// Simplified (林俊杰); LRCLIB may file it under any of them.
+const SONG_LRC = '[00:01.00]right';
+const filedAs = (artistName, trackName = '修炼爱情') => [{ id: 1, trackName, artistName, albumName: '因你而在', duration: 287, syncedLyrics: SONG_LRC }];
+function lrclibWith(records) {
+  return fakeFetch((url) => {
     const u = new URL(url);
-    if (u.pathname === '/api/get') return jsonResponse(200, plain);
-    if (u.searchParams.get('q')?.includes('100天')) return jsonResponse(200, [timed]);
-    return jsonResponse(200, [plain]);
+    if (u.pathname === '/api/get') return jsonResponse(404, {});
+    return jsonResponse(200, records);
   });
-  const p = createLyricsProvider({ fetchFn, storage: memoryStorage() });
-  const r = await p.get(track);
-  assert.equal(r.status, 'synced');
+}
+const zhNames = async () => ({ name: '修煉愛情', artists: ['林俊傑'], album: '因你而在' });
+const enNames = async () => ({ name: '修煉愛情', artists: ['JJ Lin'], album: '因你而在' });
+const shown = (name, artist) => ({ id: `${name}-${artist}`, name, artists: [artist], album: '因你而在', durationMs: 287_000 });
+
+test('Traditional on Spotify, Simplified on LRCLIB (and the reverse) match', async () => {
+  const a = createLyricsProvider({ fetchFn: lrclibWith(filedAs('林俊杰', '修炼爱情')), storage: memoryStorage() });
+  assert.equal((await a.get(shown('修煉愛情', '林俊傑'))).lines[0].text, 'right');
+  const b = createLyricsProvider({ fetchFn: lrclibWith(filedAs('林俊傑', '修煉愛情')), storage: memoryStorage() });
+  assert.equal((await b.get(shown('修炼爱情', '林俊杰'))).lines[0].text, 'right');
+});
+
+test('English artist name on Spotify, Chinese on LRCLIB: matched through the Chinese names', async () => {
+  const p = createLyricsProvider({ fetchFn: lrclibWith(filedAs('林俊杰')), storage: memoryStorage() });
+  assert.equal((await p.get(shown('修煉愛情', 'JJ Lin'), { alternates: zhNames })).lines[0].text, 'right');
+  // Without them the artist can't be confirmed, so nothing is shown rather than a guess.
+  const blind = createLyricsProvider({ fetchFn: lrclibWith(filedAs('林俊杰')), storage: memoryStorage() });
+  assert.equal((await blind.get(shown('修煉愛情', 'JJ Lin'))).status, 'none');
+});
+
+test('Chinese artist name on Spotify, English on LRCLIB: matched through the English names', async () => {
+  const p = createLyricsProvider({ fetchFn: lrclibWith(filedAs('JJ Lin')), storage: memoryStorage() });
+  assert.equal((await p.get(shown('修炼爱情', '林俊杰'), { alternates: enNames })).lines[0].text, 'right');
+});
+
+test('everything in English on Spotify: the Chinese names decide it is a Chinese song and find it', async () => {
+  let askedWith = null;
+  const p = createLyricsProvider({
+    fetchFn: lrclibWith([]),
+    storage: memoryStorage(),
+    backupFirst: 'cjk',
+    backup: async (track, { en }) => ((askedWith = en), { syncedLyrics: '[00:01.00]from netease', source: 'netease' }),
+  });
+  const r = await p.get({ id: 'latin', name: 'Practice Love', artists: ['JJ Lin'], album: 'Stories Untold', durationMs: 287_000 }, { alternates: zhNames });
+  assert.equal(r.lines[0].text, 'from netease');
+  assert.equal(askedWith.artists[0], '林俊傑');
+});
+
+test('a different artist with the same title and length is never accepted, whatever the script', async () => {
+  for (const other of ['張學友', '张学友', 'Jacky Cheung']) {
+    const p = createLyricsProvider({ fetchFn: lrclibWith(filedAs(other)), storage: memoryStorage() });
+    assert.equal((await p.get(shown('修煉愛情', '林俊傑'), { alternates: enNames })).status, 'none', other);
+  }
 });

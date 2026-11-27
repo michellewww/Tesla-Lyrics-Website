@@ -187,14 +187,16 @@ export function createLyricsProvider({
 
     // 2) Structured search with the cleaned-up title.
     const structured = await req('/api/search', { track_name: title, artist_name: artist });
-    let best = pickBest(structured, { durationSec });
+    // LRCLIB's search is fuzzy, so every result is checked here: same song name and same
+    // artist. A near miss is not shown — another source can still have the song.
+    let best = pickBest(structured, { durationSec, artist, title, fold, exact: true });
     if (good(best) && sameLength(best)) return { found: best };
     if (good(best)) far = best;
     else fallback ||= best;
 
     // 3) Free-text search, verified against artist and title.
     const free = await req('/api/search', { q: `${title} ${artist}`.trim() });
-    best = pickBest(free, { durationSec, artist, title, fold });
+    best = pickBest(free, { durationSec, artist, title, fold, exact: true });
     if (good(best) && sameLength(best)) return { found: best };
     if (good(best)) far = closer(far, best, durationSec);
     else fallback ||= best;
@@ -203,7 +205,22 @@ export function createLyricsProvider({
 
   async function lookup(track, alternates) {
     const durationSec = track.durationMs ? Math.round(track.durationMs / 1000) : undefined;
-    const names = [track.name, ...(track.artists || []), track.album || ''].join(' ');
+    const namesOf = (v) => [v.name, ...(v.artists || []), v.album || ''].join(' ');
+    // Spotify shows names in the browser's language: 李荣浩 or "Ronghao Li", 林俊傑 or
+    // "JJ Lin". `alternates` gives the same track's names in the other language (English
+    // for Chinese names, Chinese for Latin ones), so every source can be searched and
+    // checked under either. `en` holds them once known.
+    let en = null;
+    const askAlternates = async (limitMs) => {
+      const other = await withDeadline(limitMs, () => Promise.resolve().then(alternates)).catch(() => null);
+      if (other?.name && (other.name !== track.name || other.artists?.[0] !== track.artists?.[0])) en = other;
+    };
+    // Asked up front: names all in Latin letters may still be a Chinese song (an
+    // English-language browser), which decides the source that goes first, and every
+    // source checks the artist against both spellings. Briefly — it must not hold the
+    // lookup up; if it is slow it is asked again later, where it only helps.
+    if (alternates) await askAlternates(Math.min(timeoutMs, 2000));
+    const names = `${namesOf(track)} ${en ? namesOf(en) : ''}`;
     // Chinese/Japanese/Korean names are where LRCLIB's spelling most often differs from
     // Spotify's: Simplified vs Traditional, or English artist names.
     const localized = CJK.test(names);
@@ -225,7 +242,6 @@ export function createLyricsProvider({
     const hit = (record) => ({ record, incomplete: false });
 
     // The other source (QQ Music), asked once per set of names. Its errors never fail the lookup.
-    let en = null;
     let asked = null;
     let askedWithEn = false;
     let backupFailed = false;
@@ -250,12 +266,12 @@ export function createLyricsProvider({
       let fallback = first.fallback;
       let far = first.far;
 
-      // 4) Spotify shows names in the browser's language (李荣浩 in a Chinese browser,
-      //    "Ronghao Li" in an English one), and LRCLIB often has the English ones.
-      if (localized && alternates && !failure) {
+      // 4) The same search under the track's names in the other language; LRCLIB often
+      //    files Chinese artists under their English names, or the other way round.
+      if (localized && !failure) {
         // Optional extra: never let it hold up the remaining searches.
-        en = await withDeadline(Math.min(timeoutMs, 5000), () => Promise.resolve().then(alternates)).catch(() => null);
-        if (en?.name && (en.name !== track.name || en.artists?.[0] !== track.artists?.[0])) {
+        if (!en && alternates) await askAlternates(Math.min(timeoutMs, 5000));
+        if (en) {
           const second = await searchByNames(en, durationSec, fold, req);
           if (second.found) return hit(second.found);
           fallback ||= second.fallback;
@@ -292,48 +308,17 @@ export function createLyricsProvider({
       // much more likely to be a backing track of the song than the song itself.
       const candidates = (results) => timed(results).filter((r) => !r.instrumental);
 
-      // 5) Title only — accepted when the length is within 2 s and the song name is the
-      //    same (not merely contained: "Home" ≠ "Coming Home"). Latin-script artists are
-      //    spelled consistently, so those must match too; for CJK songs the artist is often
-      //    spelled differently on LRCLIB, which is why this step exists.
+      // 5) Title only, in each spelling — for songs whose artist LRCLIB writes in another
+      //    language than the one searched with. Still strict: the song name must be the same
+      //    (not merely contained: "Home" ≠ "Coming Home"), the artist must match one of the
+      //    known spellings, and the length must be within 2 s.
       const titles = unique([track.name, en?.name].filter(Boolean).flatMap((t) => spellings(cleanTitle(t) || t))).slice(0, 4);
       for (const q of titles) {
         const results = candidates(await req('/api/search', { q }));
         const best = pickBest(results, {
           durationSec,
           title: q,
-          artist: localized ? undefined : artistNames,
-          fold,
-          maxDiff: SAME_LENGTH_SEC,
-          exact: true,
-        });
-        if (good(best)) return hit(best);
-        fallback ||= best;
-      }
-
-      // 6) Artist + album, for songs LRCLIB titles differently (another language, an added
-      //    subtitle) — accepted only when the artist and album match and the length is
-      //    within 2 s. Each artist is searched with the album name from the same source
-      //    (native with native, English with English), in one script at a time.
-      //    This is the loosest search, so the backup source is asked first.
-      const other = await askBackup();
-      if (good(other)) return hit(other);
-      const pairs = [
-        [track.artists?.[0], track.album],
-        [en?.artists?.[0], en?.album],
-      ].filter(([a, b]) => a && b);
-      const albums = unique(pairs.map(([, b]) => b));
-      const queries = unique(pairs.flatMap(([a, b]) => spellers.map((f) => `${f(a)} ${f(b)}`))).slice(0, 4);
-      // Another song on the same album can easily be the same length. When this song's words
-      // are already known (plain lyrics, or a different-length version), a record found here
-      // must have the same words — it is then only wanted for its timing.
-      const known = fallback || far;
-      const sameSong = (r) => !known || sameLyrics(known, r, fold);
-      for (const q of queries) {
-        const best = pickBest(candidates(await req('/api/search', { q })).filter(sameSong), {
-          durationSec,
           artist: artistNames,
-          album: albums,
           fold,
           maxDiff: SAME_LENGTH_SEC,
           exact: true,
@@ -414,7 +399,8 @@ export function createLyricsProvider({
     /**
      * @param {{id:string,name:string,artists:string[],album:string,durationMs:number}} track
      * @param {{alternates?: () => Promise<{name:string,artists:string[],album:string}|null>}} [opts]
-     *   alternates: the same track's names in English, asked for only if the first lookup misses
+     *   alternates: the same track's names in the other language (English for Chinese names,
+     *   Chinese for Latin ones)
      */
     async get(track, { alternates } = {}) {
       // The same expiry applies to the in-memory and the saved copy, so a tab left open
